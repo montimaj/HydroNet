@@ -583,68 +583,6 @@ class HydroML:
                                       remove_na=remove_na)
             return df
 
-    def tune_parameters(self, df, pred_attr, drop_attrs=()):
-        """
-        Tune random forest hyperparameters
-        :param df: Input pandas dataframe object
-        :param pred_attr: Target attribute
-        :param drop_attrs: List of attributes to drop from the df
-        :return: None
-        """
-
-        n_features = len(df.columns) - len(drop_attrs) - 1
-        test_cases = [2014, 2012, range(2012, 2017)]
-        est_range = range(100, 601, 100)
-        f_range = range(1, n_features + 1)
-        ts = []
-        for n in range(1, len(test_cases) + 1):
-            ts.append('T' + str(n))
-        for ne in est_range:
-            for nf in f_range:
-                for y, t in zip(test_cases, ts):
-                    if not isinstance(y, range):
-                        ty = (y,)
-                    else:
-                        ty = y
-                    mld.rf_regressor(df, self.output_dir, n_estimators=ne, random_state=0, pred_attr=pred_attr,
-                                     drop_attrs=drop_attrs, test_year=ty, shuffle=False, plot_graphs=False,
-                                     split_yearly=True, bootstrap=True, max_features=nf, test_case=t)
-
-    def build_model(self, df, n_estimators=100, random_state=0, bootstrap=True, max_features=3, test_size=None,
-                    pred_attr='GW', shuffle=False, plot_graphs=False, plot_3d=False, drop_attrs=(), test_year=(2012,),
-                    split_yearly=True, load_model=False, calc_perm_imp=False):
-        """
-        Build random forest model
-        :param df: Input pandas dataframe object
-        :param pred_attr: Target attribute
-        :param drop_attrs: List of attributes to drop from the df
-        :param n_estimators: RF hyperparameter
-        :param random_state: RF hyperparameter
-        :param bootstrap: RF hyperparameter
-        :param max_features: RF hyperparameter
-        :param test_size: Required only if split_yearly=False
-        :param pred_attr: Prediction attribute name in the dataframe
-        :param shuffle: Set False to stop data shuffling
-        :param plot_graphs: Plot Actual vs Prediction graph
-        :param plot_3d: Plot pairwise 3D partial dependence plots
-        :param drop_attrs: Drop these specified attributes
-        :param test_year: Build test data from only this year(s).
-        :param split_yearly: Split train test data based on years
-        :param load_model: Load an earlier pre-trained RF model
-        :param calc_perm_imp: Set True to get permutation importances on train and test data
-        :return: Fitted RandomForestRegressor object
-        """
-
-        print('Building RF Model...')
-        plot_dir = make_proper_dir_name(self.output_dir + 'Partial_Plots/PDP_Data')
-        makedirs([plot_dir])
-        rf_model = mld.rf_regressor(df, self.output_dir, n_estimators=n_estimators, random_state=random_state,
-                                    pred_attr=pred_attr, drop_attrs=drop_attrs, test_year=test_year, shuffle=shuffle,
-                                    plot_graphs=plot_graphs, plot_3d=plot_3d, split_yearly=split_yearly,
-                                    bootstrap=bootstrap, plot_dir=plot_dir, max_features=max_features,
-                                    load_model=load_model, test_size=test_size, calc_perm_imp=calc_perm_imp)
-        return rf_model
-
     def get_predictions(self, fitted_model, pred_years, column_names=None, ordering=False, pred_attr='GW',
                         only_pred=False, exclude_vars=(), exclude_years=(2019,), drop_attrs=(), use_full_extent=False):
         """

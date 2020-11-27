@@ -4,18 +4,19 @@
 import sklearn.utils as sk
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import pickle
 import os
+import tensorflow as tf
 from glob import glob
+from sklearn.model_selection import cross_val_score, RandomizedSearchCV
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from collections import defaultdict
-from sklearn.inspection import plot_partial_dependence
-from sklearn.inspection import partial_dependence
-from sklearn.inspection import permutation_importance
-from mpl_toolkits.mplot3d import axes3d
 from Python_Files.datalibs import rasterops as rops
 from Python_Files.modeling import model_analysis as ma
 
@@ -187,66 +188,6 @@ def split_yearly_data(input_df, pred_attr='GW', outdir=None, drop_attrs=(), test
     return x_train_df, x_test_df, y_train_df[0].ravel(), y_test_df[0].ravel()
 
 
-def create_pdplots(x_train, rf_model, outdir, plot_3d=False, descriptive_labels=False):
-    """
-    Create partial dependence plots
-    :param x_train: Training set
-    :param rf_model: Random Forest model
-    :param outdir: Output directory for storing partial dependence data
-    :param plot_3d: Set True for creating pairwise 3D plots
-    :param descriptive_labels: Set True to get descriptive labels
-    :return: None
-    """
-
-    print('Plotting...')
-    feature_names = x_train.columns.values.tolist()
-    plot_labels = {'AGRI': 'AGRI', 'URBAN': 'URBAN', 'SW': 'SW', 'SSEBop': 'ET (mm)', 'P': 'P (mm)', 'Crop': 'CC',
-                   'WS_PA': 'WS_PA', 'WS_PA_EA': 'WS_PA_EA'}
-    if descriptive_labels:
-        plot_labels = {'AGRI': 'Agriculture density', 'URBAN': 'Urban density', 'SW': 'Surface water density',
-                       'ET': 'Evapotranspiration (mm)', 'P': 'Precipitation (mm)'}
-    feature_indices = range(len(feature_names))
-    feature_dict = {}
-    if plot_3d:
-        x_train = x_train[:500]
-        for fi in feature_indices:
-            for fj in feature_indices:
-                feature_check = (fi != fj) and ((fi, fj) not in feature_dict.keys()) and ((fj, fi) not in
-                                                                                          feature_dict.keys())
-                if feature_check:
-                    print(feature_names[fi], feature_names[fj])
-                    feature_dict[(fi, fj)] = True
-                    feature_dict[(fj, fi)] = True
-                    f_pefix = outdir + 'PDP_' + feature_names[fi] + '_' + feature_names[fj]
-                    saved_files = glob(outdir + '*' + feature_names[fi] + '_' + feature_names[fj] + '*')
-                    if not saved_files:
-                        pdp, axes = partial_dependence(rf_model, x_train, features=(fi, fj))
-                        x, y = np.meshgrid(axes[0], axes[1])
-                        z = pdp[0].T
-                        np.save(f_pefix + '_X', x)
-                        np.save(f_pefix + '_Y', y)
-                        np.save(f_pefix + '_Z', z)
-                    else:
-                        x = np.load(f_pefix + '_X.npy')
-                        y = np.load(f_pefix + '_Y.npy')
-                        z = np.load(f_pefix + '_Z.npy')
-                    fig = plt.figure()
-                    ax = axes3d.Axes3D(fig)
-                    surf = ax.plot_surface(x, y, z, cmap='viridis', edgecolor='k')
-                    ax.set_xlabel(plot_labels[feature_names[fi]])
-                    ax.set_ylabel(plot_labels[feature_names[fj]])
-                    ax.set_zlabel('GW Pumping (mm)')
-                    plt.colorbar(surf, shrink=0.3, aspect=5)
-                    plt.show()
-    else:
-        fnames = []
-        for name in feature_names:
-            fnames.append(plot_labels[name])
-        plot_partial_dependence(rf_model, features=feature_indices, X=x_train, feature_names=fnames, n_jobs=-1)
-        plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=1.0)
-        plt.show()
-
-
 def scale_df(input_df, output_dir, load_data=False):
     """
     Scale dataframe columns
@@ -289,8 +230,10 @@ def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(
     if load_data:
         x_train = pd.read_csv(output_dir + 'X_Train.csv')
         y_train = pd.read_csv(output_dir + 'Y_Train.csv')
+        y_train = y_train.to_numpy().ravel()
         x_test = pd.read_csv(output_dir + 'X_Test.csv')
         y_test = pd.read_csv(output_dir + 'Y_Test.csv')
+        y_test = y_test.to_numpy().ravel()
     else:
         if not split_yearly:
             x_train, x_test, y_train, y_test = split_data_train_test(input_df, pred_attr=pred_attr, test_size=test_size,
@@ -304,77 +247,72 @@ def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(
     return x_train, x_test, y_train, y_test
 
 
-def rf_regressor(input_df, out_dir, n_estimators=200, random_state=0, bootstrap=True, max_features=None, test_size=0.2,
-                 pred_attr='GW', shuffle=True, plot_graphs=False, plot_3d=False, plot_dir=None, drop_attrs=(),
-                 test_case='', test_year=None, split_yearly=True, load_model=True, calc_perm_imp=False):
+def algorithm_pipeline(X_train_data, X_test_data, y_train_data, y_test_data, model, param_grid, cv=10,
+                       scoring_fit='neg_mean_squared_error', grid_iter=100, random_state=0, model_type=None):
     """
-    Perform random forest regression
-    :param input_df: Input pandas dataframe
-    :param out_dir: Output file directory for storing intermediate results
-    :param n_estimators: RF hyperparameter
-    :param random_state: RF hyperparameter
-    :param bootstrap: RF hyperparameter
-    :param max_features: RF hyperparameter
-    :param test_size: Required only if split_yearly=False
-    :param pred_attr: Prediction attribute name in the dataframe
-    :param shuffle: Set False to stop data shuffling
-    :param plot_graphs: Plot Actual vs Prediction graph
-    :param plot_3d: Plot pairwise 3D partial dependence plots
-    :param plot_dir: Directory for storing PDP data
-    :param drop_attrs: Drop these specified attributes
-    :param test_case: Used for writing the test case number to the CSV
-    :param test_year: Build test data from only this year. Use tuple of years to split train test data using
-    #split_yearly_data
-    :param split_yearly: Split train test data based on years
-    :param load_model: Load an earlier pre-trained RF model
-    :param calc_perm_imp: Set True to get permutation importances on train and test data
-    :return: Random forest model
+    Creates a generalized algorithm pipeline and applies RandomizedSearchCV
+    :param X_train_data: Training data
+    :param X_test_data: Test data
+    :param y_train_data: Training labels
+    :param y_test_data:Test labels
+    :param model: Model object
+    :param param_grid: Dictionary of hyperparameters
+    :param cv: Number of cross-validation folds
+    :param scoring_fit: Scoring metric
+    :param grid_iter: Number of grid iterations
+    :param random_state: PRNG seed
+    :param model_type: Set this to 'MLP' when using scikit-learn MLPRegressor
+    :return: Best fit model and prediction statistics
     """
 
-    saved_model = glob(out_dir + '*rf_model*')
-    if load_model and saved_model:
-        regressor = get_rf_model(saved_model[0])
-        x_train = pd.read_csv(out_dir + 'X_Train.csv')
-        y_train = pd.read_csv(out_dir + 'Y_Train.csv')
-        x_test = pd.read_csv(out_dir + 'X_Test.csv')
-        y_test = pd.read_csv(out_dir + 'Y_Test.csv')
-    else:
-        x_train, x_test, y_train, y_test = split_data(input_df, output_dir=out_dir, pred_attr=pred_attr,
-                                                      test_size=test_size, random_state=random_state, shuffle=shuffle,
-                                                      drop_attrs=drop_attrs, test_year=test_year,
-                                                      split_yearly=split_yearly)
-        regressor = RandomForestRegressor(n_estimators=n_estimators, random_state=random_state, bootstrap=bootstrap,
-                                          max_features=max_features, n_jobs=-1, oob_score=True)
-        regressor.fit(x_train, y_train)
-        pickle.dump(regressor, open(out_dir + 'rf_model', mode='wb'))
+    rs = RandomizedSearchCV(estimator=model, param_distributions=param_grid, cv=cv, n_jobs=-2, scoring=scoring_fit,
+                            verbose=2, random_state=random_state, n_iter=grid_iter)
+    fitted_model = rs.fit(X_train_data, y_train_data)
+    if model_type == 'mlp':
+        fitted_model.out_activation_ = 'relu'
+    pred = fitted_model.predict(X_test_data)
+    pred_stats = ma.get_error_stats(y_test_data, pred)
+    return fitted_model, pred_stats
 
-    print('Predictor... ')
-    y_pred = regressor.predict(x_test)
-    feature_imp = " ".join(str(np.round(i, 2)) for i in regressor.feature_importances_)
-    permutation_imp_train, permutation_imp_test = None, None
-    if calc_perm_imp:
-        permutation_imp_train = permutation_importance(regressor, x_train, y_train, n_repeats=10,
-                                                       random_state=random_state, n_jobs=-1)
-        permutation_imp_train = " ".join(str(np.round(i, 2)) for i in permutation_imp_train.importances_mean)
-        permutation_imp_test = permutation_importance(regressor, x_test, y_test, n_repeats=10,
-                                                      random_state=random_state, n_jobs=-1)
-        permutation_imp_test = " ".join(str(np.round(i, 2)) for i in permutation_imp_test.importances_mean)
-    train_score = np.round(regressor.score(x_train, y_train), 2)
-    test_score = np.round(regressor.score(x_test, y_test), 2)
-    r2_score, mae, rmse, nmae, nrmse = ma.get_error_stats(y_test, y_pred)
-    oob_score = np.round(regressor.oob_score_, 2)
-    df = {'Test': [test_case], 'N_Estimator': [n_estimators], 'MF': [max_features], 'F_IMP': [feature_imp],
-          'Train_Score': [train_score], 'Test_Score': [test_score], 'OOB_Score': [oob_score], 'R2': [r2_score],
-          'MAE': [mae], 'RMSE': [rmse], 'NMAE': [nmae], 'NRMSE': [nrmse]}
-    if calc_perm_imp:
-        df['P_IMP_TRAIN'], df['P_IMP_TEST'] = [permutation_imp_train], [permutation_imp_test]
-    print('Model statistics:', df)
-    df = pd.DataFrame(data=df)
-    with open(out_dir + 'RF_Results.csv', 'a') as f:
-        df.to_csv(f, mode='a', index=False, header=f.tell() == 0)
-    if plot_graphs:
-        create_pdplots(x_train=x_train, rf_model=regressor, outdir=plot_dir, plot_3d=plot_3d)
-    return regressor
+
+def perform_mlpregression(X_train_data, X_test_data, y_train_data, y_test_data, cv=10, grid_iter=100,
+                          scoring_fit='neg_mean_squared_error', random_state=0):
+    """
+    Perform regression using scikit-learn MLPRegressor
+    :param X_train_data: Training data
+    :param X_test_data: Test data
+    :param y_train_data: Training labels
+    :param y_test_data:Test labels
+    :param cv: Number of cross-validation folds
+    :param grid_iter: Number of grid iterations
+    :param scoring_fit: Scoring metric
+    :param random_state: PRNG seed
+    :return: Fitted model and prediction statistics
+    """
+
+    mlp_regressor = MLPRegressor()
+    np.random.seed(random_state)
+    param_grid = {
+        'hidden_layer_sizes': [(128, ), (128, 64), (128, 64, 32), (128, 64, 32, 8), (128, 64, 32, 8, 4)],
+        'activation': ['relu', 'logistic'],
+        'solver': ['adam', 'sgd'],
+        'alpha': [0, 1e-3, 1e-4],
+        'batch_size': [200, 500, 1000, 5000],
+        'learning_rate': ['constant', 'invscaling', 'adaptive'],
+        'learning_rate_init': [1e-3, 1e-4, 1e-5],
+        'power_t': np.random.uniform(0.1, 1, 10).tolist(),
+        'max_iter': [200, 500, 1000],
+        'random_state': [0],
+        'tol': [1e-4, 1e-5],
+        'momentum': np.random.uniform(0.1, 1, 10).tolist(),
+        'beta_1': np.random.uniform(0.1, 1, 10).tolist(),
+        'beta_2': np.random.uniform(0.1, 1, 10).tolist()
+    }
+    mlp_regressor, pred_stats = algorithm_pipeline(X_train_data, X_test_data, y_train_data, y_test_data, mlp_regressor,
+                                                   param_grid, cv, scoring_fit, grid_iter, random_state, 'mlp')
+    print(np.sqrt(-mlp_regressor.best_score_))
+    print(mlp_regressor.best_params_)
+    print(pred_stats)
 
 
 def create_pred_raster(rf_model, out_raster, actual_raster_dir, column_names=None, exclude_vars=(), pred_year=2015,

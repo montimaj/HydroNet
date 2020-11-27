@@ -1,8 +1,6 @@
 # Author: Sayantan Majumdar
 # Email: smxnv@mst.edu
 
-import numpy as np
-import pickle
 from Python_Files.modeling import gw_driver, ml_driver, pca_reduce
 from Python_Files.datalibs.sysops import make_proper_dir_name, makedirs
 
@@ -95,6 +93,18 @@ class HydroNet:
                                                           load_data=True)
             print('Transformed PCA data loaded...')
 
+    def perform_regression(self, cv=10, model_type='mlp'):
+        """
+        Perform regression using different models
+        :param cv: Number of cross-validation folds
+        :param model_type: Regression model, default is MLP. Others include 'kreg', 'vlstm', 'lstm', 'cnnlstm'
+        :return: None
+        """
+
+        if model_type == 'mlp':
+            ml_driver.perform_mlpregression(self.x_train_pca, self.x_test_pca, self.y_train, self.y_test, cv=cv,
+                                            random_state=self.random_state)
+
 
 def run_ml_gw():
     """
@@ -109,6 +119,7 @@ def run_ml_gw():
     hydronet = HydroNet(gw_df, output_dir)
     hydronet.scale_and_split_df(test_year=test_years, drop_attrs=drop_attrs, load_data=True)
     hydronet.perform_pca(gamma=1/5, already_transformed=True)
+    hydronet.perform_regression()
 
 
 run_ml_gw()
