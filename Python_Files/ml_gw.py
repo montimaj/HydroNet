@@ -23,7 +23,7 @@ class HydroNet:
         self.scaled_df = None
         self.scaler = None
         self.x_train, self.x_test, self.y_train, self.y_test = [None] * 4
-        self.x_train_pca, self.x_test_pca = None, None
+        self.x_train_pca, self.x_test_pca, self.fit_pca = [None] * 3
         self.train_test_out_dir = None
         self.pca_output_dir = None
 
@@ -57,7 +57,7 @@ class HydroNet:
                                                                                     random_state=self.random_state,
                                                                                     load_data=load_data)
 
-    def perform_pca(self, kpca_type='poly', gamma=10, degree=3, n_components=5, n_samples=1000,
+    def perform_pca(self, kpca_type='poly', gamma=10., degree=3, n_components=5, n_samples=1000,
                     already_transformed=False):
         """
         Perform PCA-based dimensionality reduction, initially, eigenvalue plot is displayed to identify the
@@ -74,22 +74,25 @@ class HydroNet:
 
         print('Performing PCA...')
         self.pca_output_dir = make_proper_dir_name(self.output_dir + 'PCA_Data')
-        x_train_pca_out = self.pca_output_dir + 'X_Train_PCA.npy'
-        x_test_pca_out = self.pca_output_dir + 'X_Test_PCA.npy'
         if not already_transformed:
             makedirs([self.pca_output_dir])
-            fit_pca = pca_reduce.fit_pca(self.x_train, kpca_type, gamma, degree, n_components=None, n_samples=n_samples,
-                                         random_state=self.random_state)
-            pca_reduce.plot_kpca(fit_pca)
-            fit_pca = pca_reduce.fit_pca(self.x_train, kpca_type, gamma, degree, n_components=n_components,
+            fit_pca = pca_reduce.fit_pca(self.x_train, self.pca_output_dir, kpca_type, gamma, degree, n_components=None,
                                          n_samples=n_samples, random_state=self.random_state)
-            self.x_train_pca = fit_pca.transform(self.x_train)
-            self.x_test_pca = fit_pca.transform(self.x_test)
-            np.save(x_train_pca_out, self.x_train_pca)
-            np.save(x_test_pca_out, self.x_test_pca)
+            pca_reduce.plot_kpca(fit_pca)
+            self.fit_pca = pca_reduce.fit_pca(self.x_train, self.pca_output_dir, kpca_type, gamma, degree,
+                                              n_components=n_components, n_samples=n_samples,
+                                              random_state=self.random_state)
+            _, self.x_train_pca = pca_reduce.pca_transform(fit_pca_obj=self.fit_pca, input_data=self.x_train,
+                                                           output_dir=self.pca_output_dir, output_suffix='X_Train_PCA',
+                                                           load_data=False)
+            _, self.x_test_pca = pca_reduce.pca_transform(fit_pca_obj=self.fit_pca, input_data=self.x_test,
+                                                           output_dir=self.pca_output_dir, output_suffix='X_Test_PCA',
+                                                           load_data=False)
         else:
-            self.x_train_pca = np.load(x_train_pca_out)
-            self.x_test_pca = np.load(x_test_pca_out)
+            self.fit_pca, self.x_train_pca = pca_reduce.pca_transform(output_dir=self.pca_output_dir,
+                                                                      output_suffix='X_Train_PCA', load_data=True)
+            _, self.x_test_pca = pca_reduce.pca_transform(output_dir=self.pca_output_dir, output_suffix='X_Test_PCA',
+                                                          load_data=True)
             print('Transformed PCA data loaded...')
 
 
@@ -105,7 +108,7 @@ def run_ml_gw():
     drop_attrs = ('YEAR',)
     hydronet = HydroNet(gw_df, output_dir)
     hydronet.scale_and_split_df(test_year=test_years, drop_attrs=drop_attrs, load_data=True)
-    hydronet.perform_pca(already_transformed=True)
+    hydronet.perform_pca(gamma=1/5, already_transformed=True)
 
 
 run_ml_gw()

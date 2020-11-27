@@ -3,8 +3,10 @@
 
 from sklearn.decomposition import KernelPCA
 import numpy as np
+import pickle
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
 
 
 def plot_kpca(fitted_pca, max_lambdas=50):
@@ -33,10 +35,12 @@ def plot_kpca(fitted_pca, max_lambdas=50):
     plt.show()
 
 
-def fit_pca(input_data, kpca_type='poly', gamma=10, degree=3, n_components=5, n_samples=1000, random_state=0):
+def fit_pca(input_data, output_dir, kpca_type='poly', gamma=10, degree=3, n_components=5, n_samples=1000,
+            random_state=0):
     """
     Fit PCA over given data
     :param input_data: Input numpy array
+    :param output_dir: Output directory for storing fitted PCA object
     :param kpca_type: Set PCA kernel, default is polynomial. Others include 'linear', 'rbf', 'sigmoid', and 'cosine'
     :param gamma: Gamma parameter for polynomial and RBF PCA
     :param degree: Degree parameter for polynomial PCA
@@ -57,5 +61,32 @@ def fit_pca(input_data, kpca_type='poly', gamma=10, degree=3, n_components=5, n_
     else:
         fit_kpca = KernelPCA(kernel=kpca_type, gamma=gamma, degree=degree, n_components=n_components,
                              n_jobs=-1).fit(sample_data)
+        pickle.dump(fit_kpca, open(output_dir + 'Fit_PCA', mode='wb'))
     return fit_kpca
 
+
+def pca_transform(output_dir, output_suffix, fit_pca_obj=None, input_data=None, load_data=False):
+    """
+    Perform PCA transformation and show histogram plots of the components
+    :param output_dir: Output directory for storing transformed data
+    :param output_suffix: Output file suffix
+     :param fit_pca_obj: Fitted PCA object, can be None if load_data is True
+    :param input_data: Input data, can be None if load_data is True
+    :param load_data: Set True to load existing transformed dataframes and fitted pca object
+    :return: Fitted pca object and transformed data as tuples
+    """
+
+    out_transform_file = output_dir + output_suffix + '.csv'
+    if load_data:
+        fit_pca_obj = pickle.load(open(output_dir + 'Fit_PCA', mode='rb'))
+        out_transform = pd.read_csv(out_transform_file)
+    else:
+        out_transform = pd.DataFrame(data=fit_pca_obj.transform(input_data))
+        out_transform.to_csv(out_transform_file, index=False)
+        out_transform.columns = ['Component ' + str(comp + 1) for comp in range(len(out_transform.columns))]
+        g = sns.PairGrid(out_transform.sample(1000))
+        g.map_upper(sns.histplot)
+        g.map_lower(sns.kdeplot, fill=True)
+        g.map_diag(sns.histplot, kde=True)
+        plt.show()
+    return fit_pca_obj, out_transform
