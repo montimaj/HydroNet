@@ -247,14 +247,12 @@ def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(
     return x_train, x_test, y_train, y_test
 
 
-def algorithm_pipeline(X_train_data, X_test_data, y_train_data, y_test_data, model, param_grid, cv=10,
-                       scoring_fit='neg_mean_squared_error', grid_iter=100, random_state=0, model_type=None):
+def algorithm_pipeline(X_train_data, y_train_data, model, param_grid, cv=10, scoring_fit='neg_mean_squared_error',
+                       grid_iter=10, random_state=0, model_type=None):
     """
     Creates a generalized algorithm pipeline and applies RandomizedSearchCV
     :param X_train_data: Training data
-    :param X_test_data: Test data
     :param y_train_data: Training labels
-    :param y_test_data:Test labels
     :param model: Model object
     :param param_grid: Dictionary of hyperparameters
     :param cv: Number of cross-validation folds
@@ -262,7 +260,7 @@ def algorithm_pipeline(X_train_data, X_test_data, y_train_data, y_test_data, mod
     :param grid_iter: Number of grid iterations
     :param random_state: PRNG seed
     :param model_type: Set this to 'MLP' when using scikit-learn MLPRegressor
-    :return: Best fit model and prediction statistics
+    :return: Best fit model
     """
 
     rs = RandomizedSearchCV(estimator=model, param_distributions=param_grid, cv=cv, n_jobs=-2, scoring=scoring_fit,
@@ -270,49 +268,56 @@ def algorithm_pipeline(X_train_data, X_test_data, y_train_data, y_test_data, mod
     fitted_model = rs.fit(X_train_data, y_train_data)
     if model_type == 'mlp':
         fitted_model.out_activation_ = 'relu'
-    pred = fitted_model.predict(X_test_data)
-    pred_stats = ma.get_error_stats(y_test_data, pred)
-    return fitted_model, pred_stats
+    return fitted_model
 
 
-def perform_mlpregression(X_train_data, X_test_data, y_train_data, y_test_data, cv=10, grid_iter=100,
-                          scoring_fit='neg_mean_squared_error', random_state=0):
+def perform_mlpregression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, cv=10, grid_iter=10,
+                          scoring_fit='neg_mean_squared_error', random_state=0, load_model=False):
     """
     Perform regression using scikit-learn MLPRegressor
     :param X_train_data: Training data
     :param X_test_data: Test data
     :param y_train_data: Training labels
     :param y_test_data:Test labels
+    :param output_dir: Output directory to dump the best-fit model
     :param cv: Number of cross-validation folds
     :param grid_iter: Number of grid iterations
     :param scoring_fit: Scoring metric
     :param random_state: PRNG seed
+    :param load_model: Set True to load existing best-fit model
     :return: Fitted model and prediction statistics
     """
 
-    mlp_regressor = MLPRegressor()
-    np.random.seed(random_state)
-    param_grid = {
-        'hidden_layer_sizes': [(128, ), (128, 64), (128, 64, 32), (128, 64, 32, 8), (128, 64, 32, 8, 4)],
-        'activation': ['relu', 'logistic'],
-        'solver': ['adam', 'sgd'],
-        'alpha': [0, 1e-3, 1e-4],
-        'batch_size': [200, 500, 1000, 5000],
-        'learning_rate': ['constant', 'invscaling', 'adaptive'],
-        'learning_rate_init': [1e-3, 1e-4, 1e-5],
-        'power_t': np.random.uniform(0.1, 1, 10).tolist(),
-        'max_iter': [200, 500, 1000],
-        'random_state': [0],
-        'tol': [1e-4, 1e-5],
-        'momentum': np.random.uniform(0.1, 1, 10).tolist(),
-        'beta_1': np.random.uniform(0.1, 1, 10).tolist(),
-        'beta_2': np.random.uniform(0.1, 1, 10).tolist()
-    }
-    mlp_regressor, pred_stats = algorithm_pipeline(X_train_data, X_test_data, y_train_data, y_test_data, mlp_regressor,
-                                                   param_grid, cv, scoring_fit, grid_iter, random_state, 'mlp')
+    if not load_model:
+        mlp_regressor = MLPRegressor()
+        np.random.seed(random_state)
+        param_grid = {
+            'hidden_layer_sizes': [(128, ), (128, 64), (128, 64, 32), (128, 64, 32, 8), (128, 64, 32, 8, 4)],
+            'activation': ['relu', 'logistic'],
+            'solver': ['adam', 'sgd'],
+            'alpha': [0, 1e-3, 1e-4],
+            'batch_size': [200, 500, 1000, 5000],
+            'learning_rate': ['constant', 'invscaling', 'adaptive'],
+            'learning_rate_init': [1e-3, 1e-4, 1e-5],
+            'power_t': np.random.uniform(0.1, 1, 10).tolist(),
+            'max_iter': [500, 1000, 1500],
+            'random_state': [0],
+            'tol': [1e-4, 1e-5],
+            'momentum': np.random.uniform(0.1, 1, 10).tolist(),
+            'beta_1': np.random.uniform(0.1, 1, 10).tolist(),
+            'beta_2': np.random.uniform(0.1, 1, 10).tolist()
+        }
+        mlp_regressor = algorithm_pipeline(X_train_data, y_train_data, mlp_regressor, param_grid, cv, scoring_fit,
+                                           grid_iter, random_state, 'mlp')
+        pickle.dump(mlp_regressor, open(output_dir + 'MLP_model', mode='wb'))
+    else:
+        mlp_regressor = pickle.load(open(output_dir + 'MLP_model', mode='rb'))
     print(np.sqrt(-mlp_regressor.best_score_))
     print(mlp_regressor.best_params_)
+    pred = mlp_regressor.predict(X_test_data)
+    pred_stats = ma.get_error_stats(y_test_data, pred)
     print(pred_stats)
+    return mlp_regressor
 
 
 def create_pred_raster(rf_model, out_raster, actual_raster_dir, column_names=None, exclude_vars=(), pred_year=2015,

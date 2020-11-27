@@ -24,6 +24,7 @@ class HydroNet:
         self.x_train_pca, self.x_test_pca, self.fit_pca = [None] * 3
         self.train_test_out_dir = None
         self.pca_output_dir = None
+        self.model_output_dir = None
 
     def scale_and_split_df(self, pred_attr='GW', shuffle=False, drop_attrs=(), test_year=(2012,), test_size=0.2,
                            split_yearly=True, load_data=False):
@@ -93,17 +94,23 @@ class HydroNet:
                                                           load_data=True)
             print('Transformed PCA data loaded...')
 
-    def perform_regression(self, cv=10, model_type='mlp'):
+    def perform_regression(self, cv=10, grid_iter=10, model_type='mlp', load_model=False):
         """
         Perform regression using different models
         :param cv: Number of cross-validation folds
+        :param grid_iter: Number of grid iterations
         :param model_type: Regression model, default is MLP. Others include 'kreg', 'vlstm', 'lstm', 'cnnlstm'
+        :param load_model: Set True to load existing model
         :return: None
         """
 
+        self.model_output_dir = make_proper_dir_name(self.output_dir + 'Model_Dumps')
+        if not load_model:
+            makedirs([self.model_output_dir])
         if model_type == 'mlp':
-            ml_driver.perform_mlpregression(self.x_train_pca, self.x_test_pca, self.y_train, self.y_test, cv=cv,
-                                            random_state=self.random_state)
+            mlp_model = ml_driver.perform_mlpregression(self.x_train_pca, self.x_test_pca, self.y_train, self.y_test,
+                                                        self.model_output_dir, cv=cv, grid_iter=grid_iter,
+                                                        random_state=self.random_state, load_model=load_model)
 
 
 def run_ml_gw():
