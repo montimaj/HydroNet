@@ -239,8 +239,7 @@ def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(
         if not split_yearly:
             x_train, x_test, y_train, y_test = split_data_train_test(input_df, pred_attr=pred_attr, test_size=test_size,
                                                                      random_state=random_state, shuffle=shuffle,
-                                                                     outdir=output_dir, drop_attrs=drop_attrs,
-                                                                     test_year=test_year)
+                                                                     outdir=output_dir, drop_attrs=drop_attrs)
         else:
             x_train, x_test, y_train, y_test = split_yearly_data(input_df, pred_attr=pred_attr, outdir=output_dir,
                                                                  drop_attrs=drop_attrs, test_years=test_year,
@@ -277,8 +276,7 @@ class HydroHyperModel(HyperModel):
 
     def build(self, hp):
         model = Sequential()
-        activation = hp.Choice('activation',
-                               [
+        input_activation = hp.Choice('input_activation', [
                                    'softmax',
                                    'softplus',
                                    'softsign',
@@ -287,13 +285,13 @@ class HydroHyperModel(HyperModel):
                                    'sigmoid',
                                    'hard_sigmoid',
                                    'linear'
-                               ])
-        model.add(Dense(units=128, activation=activation, input_shape=[self.num_features]))
-        for i in range(hp.Int('num_layers', 1, 6)):
+                            ])
+        model.add(Dense(units=128, activation=input_activation, input_shape=[self.num_features]))
+        for i in range(hp.Int('num_layers', 1, 10)):
             units = hp.Int(
                 'units_' + str(i),
                 min_value=8,
-                max_value=64,
+                max_value=256,
                 step=8
             )
             model.add(BatchNormalization())
@@ -304,8 +302,8 @@ class HydroHyperModel(HyperModel):
                                       0.5, 0.6, 0.7, 0.8, 0.9
                                   ])
             model.add(Dropout(rate=drop_rate))
+        output_activation = hp.Choice('output_activation', ['softmax', 'relu', 'linear'])
         model.add(BatchNormalization())
-        output_activation = hp.Choice('output_activation', ['sigmoid', 'softmax', 'relu'])
         model.add(Dense(1, activation=output_activation))
         lr = hp.Choice('learning_rate', [1e-2, 1e-3, 1e-4])
         beta_1 = hp.Choice('beta_1', np.random.uniform(0, 1, 10).tolist())
@@ -344,7 +342,7 @@ class HydroTuner(RandomSearch):
 
 
 def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, max_trials=20,
-                            max_exec_trial=5, random_state=0, load_model=False):
+                            max_exec_trial=5, validation_split=0.1, random_state=0):
     """
     Perform regression using Tensorflow and Keras
     :param X_train_data: Training data
@@ -355,35 +353,29 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     :param max_trials: Maximum Keras Tuner trials
     :param max_exec_trial: Maximum executions per trial for Keras Tuner
     :param random_state: PRNG seed
-    :param load_model: Set True to load existing best-fit model
+    :param validation_split: Amount of validation data to set aside during training
     :return: Fitted model and prediction statistics
     """
 
-    if not load_model:
-        np.random.seed(random_state)
-        hypermodel = HydroHyperModel(num_features=X_train_data.shape[1])
-        objective_func = 'mean_squared_error'
-        tuner = HydroTuner(
-            hypermodel,
-            objective=objective_func,
-            max_trials=max_trials,
-            executions_per_trial=max_exec_trial,
-            directory=output_dir,
-            project_name='HydroNet_Keras',
-            seed=random_state
-        )
-        print(tuner.search_space_summary())
-        tuner.search(X_train_data, y_train_data, validation_split=0.1,
-                     callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=3)])
-        print(tuner.results_summary())
-        best_model = tuner.get_best_models()[0]
-        pickle.dump(best_model, open(output_dir + 'Keras_model', mode='wb'))
-        pickle.dump(tuner, open(output_dir + 'HydroTuner', mode='wb'))
-    else:
-        best_model = pickle.load(open(output_dir + 'Keras_model', mode='rb'))
-        tuner = pickle.load(open(output_dir + 'HydroTuner', mode='rb'))
+    objective_func = 'val_mean_squared_error'
+    project_name = 'HydroNet_Keras'
+    hypermodel = HydroHyperModel(num_features=X_train_data.shape[1])
 
+    tuner = HydroTuner(
+        hypermodel,
+        objective=objective_func,
+        max_trials=max_trials,
+        executions_per_trial=max_exec_trial,
+        directory=output_dir,
+        project_name=project_name,
+        seed=random_state
+    )
+    print(tuner.search_space_summary())
+    tuner.search(X_train_data, y_train_data, validation_split=validation_split,
+                 callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=3)])
+    print(tuner.results_summary())
     print('Keras Regressor:', tuner.get_best_hyperparameters())
+    best_model = tuner.get_best_models()[0]
     print(best_model.evaluate(X_test_data, y_test_data))
     pred = best_model.predict(X_test_data)
     pred_stats = ma.get_error_stats(y_test_data, pred)

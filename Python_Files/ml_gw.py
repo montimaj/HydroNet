@@ -98,12 +98,10 @@ class HydroNet:
                                                           load_data=True)
             print('Transformed PCA data loaded...')
 
-    def perform_regression(self, use_pca_data=False, cv=10, grid_iter=10, model_type='mlp', load_model=False):
+    def perform_regression(self, use_pca_data=False, model_type='mlp', load_model=False, **kwargs):
         """
         Perform regression using different models
         :param use_pca_data: Set True to use PCA transformed data
-        :param cv: Number of cross-validation folds
-        :param grid_iter: Number of grid iterations
         :param model_type: Regression model, default is MLP. Others include ,'lreg', 'kreg', 'vlstm', 'lstm', 'cnnlstm'
         :param load_model: Set True to load existing model
         :return: None
@@ -118,6 +116,8 @@ class HydroNet:
             x_train_data = self.x_train_pca
             x_test_data = self.x_test_pca
         if model_type == 'mlp':
+            cv = kwargs['cv']
+            grid_iter = kwargs['grid_iter']
             self.built_model = ml_driver.perform_mlpregression(x_train_data, x_test_data, self.y_train, self.y_test,
                                                                self.model_output_dir, cv=cv, grid_iter=grid_iter,
                                                                random_state=self.random_state, load_model=load_model)
@@ -125,8 +125,10 @@ class HydroNet:
             self.built_model = ml_driver.perform_linearregression(x_train_data, x_test_data, self.y_train, self.y_test)
 
         elif model_type == 'kreg':
+            validation_split = kwargs['validation_split']
             self.built_model = ml_driver.perform_kerasregression(x_train_data, x_test_data, self.y_train, self.y_test,
-                                                                 self.model_output_dir, random_state=self.random_state)
+                                                                 self.model_output_dir, random_state=self.random_state,
+                                                                 validation_split=validation_split)
 
 
 def run_ml_gw():
@@ -140,9 +142,9 @@ def run_ml_gw():
     test_years = range(2011, 2019)
     drop_attrs = ('YEAR',)
     hydronet = HydroNet(gw_df, output_dir)
-    hydronet.scale_and_split_df(test_year=test_years, drop_attrs=drop_attrs, load_data=True)
+    hydronet.scale_and_split_df(test_year=test_years, drop_attrs=drop_attrs, split_yearly=False, load_data=True)
     hydronet.perform_pca(gamma=1/6, n_components=6, already_transformed=True)
-    hydronet.perform_regression(model_type='kreg')
+    hydronet.perform_regression(model_type='kreg', validation_split=0.1)
 
 
 run_ml_gw()
