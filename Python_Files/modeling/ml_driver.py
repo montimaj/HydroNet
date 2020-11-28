@@ -6,15 +6,16 @@ import pandas as pd
 import numpy as np
 import pickle
 import os
-import tensorflow as tf
+from tensorflow import keras
 from glob import glob
-from sklearn.model_selection import cross_val_score, RandomizedSearchCV
+from sklearn.model_selection import RandomizedSearchCV
+from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.wrappers.scikit_learn import KerasRegressor
-from sklearn.ensemble import RandomForestRegressor
+from kerastuner.tuners import RandomSearch
+from kerastuner import HyperModel
 from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import MinMaxScaler
 from collections import defaultdict
 from Python_Files.datalibs import rasterops as rops
@@ -185,7 +186,7 @@ def split_yearly_data(input_df, pred_attr='GW', outdir=None, drop_attrs=(), test
         y_train_df.to_csv(outdir + 'Y_Train.csv', index=False)
         y_test_df.to_csv(outdir + 'Y_Test.csv', index=False)
 
-    return x_train_df, x_test_df, y_train_df[0].ravel(), y_test_df[0].ravel()
+    return x_train_df, x_test_df, y_train_df.to_numpy().ravel(), y_test_df.to_numpy().ravel()
 
 
 def scale_df(input_df, output_dir, load_data=False):
@@ -248,7 +249,7 @@ def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(
 
 
 def algorithm_pipeline(X_train_data, y_train_data, model, param_grid, cv=10, scoring_fit='neg_mean_squared_error',
-                       grid_iter=10, random_state=0, model_type=None):
+                       grid_iter=10, random_state=0):
     """
     Creates a generalized algorithm pipeline and applies RandomizedSearchCV
     :param X_train_data: Training data
@@ -259,16 +260,151 @@ def algorithm_pipeline(X_train_data, y_train_data, model, param_grid, cv=10, sco
     :param scoring_fit: Scoring metric
     :param grid_iter: Number of grid iterations
     :param random_state: PRNG seed
-    :param model_type: Set this to 'MLP' when using scikit-learn MLPRegressor
     :return: Best fit model
     """
 
     rs = RandomizedSearchCV(estimator=model, param_distributions=param_grid, cv=cv, n_jobs=-2, scoring=scoring_fit,
                             verbose=2, random_state=random_state, n_iter=grid_iter)
     fitted_model = rs.fit(X_train_data, y_train_data)
-    if model_type == 'mlp':
-        fitted_model.out_activation_ = 'relu'
     return fitted_model
+
+
+class HydroHyperModel(HyperModel):
+
+    def __init__(self, num_features):
+        super().__init__()
+        self.num_features = num_features
+
+    def build(self, hp):
+        model = Sequential()
+        activation = hp.Choice('activation',
+                               [
+                                   'softmax',
+                                   'softplus',
+                                   'softsign',
+                                   'relu',
+                                   'tanh',
+                                   'sigmoid',
+                                   'hard_sigmoid',
+                                   'linear'
+                               ])
+        model.add(Dense(units=128, activation=activation, input_shape=[self.num_features]))
+        for i in range(hp.Int('num_layers', 1, 6)):
+            units = hp.Int(
+                'units_' + str(i),
+                min_value=8,
+                max_value=64,
+                step=8
+            )
+            model.add(BatchNormalization())
+            model.add(Dense(units=units, activation='relu'))
+            drop_rate = hp.Choice('drop_rate_' + str(i),
+                                  [
+                                      0.0, 0.1, 0.2, 0.3, 0.4,
+                                      0.5, 0.6, 0.7, 0.8, 0.9
+                                  ])
+            model.add(Dropout(rate=drop_rate))
+        model.add(BatchNormalization())
+        output_activation = hp.Choice('output_activation', ['sigmoid', 'softmax', 'relu'])
+        model.add(Dense(1, activation=output_activation))
+        lr = hp.Choice('learning_rate', [1e-2, 1e-3, 1e-4])
+        beta_1 = hp.Choice('beta_1', np.random.uniform(0, 1, 10).tolist())
+        beta_2 = hp.Choice('beta_2', np.random.uniform(0, 1, 10).tolist())
+        epsilon = hp.Choice('epsilon', [1e-7, 1e-8, 1e-9])
+        momentum = hp.Choice('momentum', [0.0, 0.2, 0.4, 0.6, 0.8, 0.9])
+        rho = hp.Choice('rho', np.random.uniform(0.1, 1, 10).tolist())
+        iav = hp.Choice('iav', [0.0, 0.1, 0.2, 0.3])
+        optimizer = hp.Choice('optimizer', ['adam', 'sgd', 'rmsprop', 'adagrad', 'adadelta', 'nadam'])
+        optimizer_dict = {
+            'adam': keras.optimizers.Adam(learning_rate=lr, beta_1=beta_1, beta_2=beta_2, epsilon=epsilon),
+            'sgd': keras.optimizers.SGD(learning_rate=lr, momentum=momentum),
+            'rmsprop': keras.optimizers.RMSprop(learning_rate=lr, rho=rho, momentum=momentum, epsilon=epsilon),
+            'adagrad': keras.optimizers.Adagrad(learning_rate=lr, initial_accumulator_value=iav, epsilon=epsilon),
+            'adadelta': keras.optimizers.Adadelta(learning_rate=lr, rho=rho, epsilon=epsilon),
+            'nadam': keras.optimizers.Nadam(learning_rate=lr, beta_1=beta_1, beta_2=beta_2, epsilon=epsilon)
+        }
+        loss = hp.Choice('loss', ['mean_squared_error',
+                                  'mean_absolute_error',
+                                  'cosine_similarity',
+                                  'mean_squared_logarithmic_error',
+                                  'huber_loss'
+                                  ])
+        model.compile(
+            optimizer=optimizer_dict[optimizer],
+            loss=loss,
+            metrics=['mean_squared_error', 'mean_absolute_error'])
+        return model
+
+
+class HydroTuner(RandomSearch):
+    def run_trial(self, trial, *args, **kwargs):
+        kwargs['batch_size'] = trial.hyperparameters.Int('batch_size', 32, 1025, step=32)
+        kwargs['epochs'] = trial.hyperparameters.Int('epochs', 500, 1001, step=100)
+        super(HydroTuner, self).run_trial(trial, *args, **kwargs)
+
+
+def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, max_trials=20,
+                            max_exec_trial=5, random_state=0, load_model=False):
+    """
+    Perform regression using Tensorflow and Keras
+    :param X_train_data: Training data
+    :param X_test_data: Test data
+    :param y_train_data: Training labels
+    :param y_test_data:Test labels
+    :param output_dir: Output directory to dump the best-fit model
+    :param max_trials: Maximum Keras Tuner trials
+    :param max_exec_trial: Maximum executions per trial for Keras Tuner
+    :param random_state: PRNG seed
+    :param load_model: Set True to load existing best-fit model
+    :return: Fitted model and prediction statistics
+    """
+
+    if not load_model:
+        np.random.seed(random_state)
+        hypermodel = HydroHyperModel(num_features=X_train_data.shape[1])
+        tuner = HydroTuner(
+            hypermodel,
+            objective='mse',
+            max_trials=max_trials,
+            executions_per_trial=max_exec_trial,
+            directory=output_dir,
+            project_name='HydroNet_Keras',
+            seed=random_state
+        )
+        print(tuner.search_space_summary())
+        tuner.search(X_train_data, y_train_data, validation_data=(X_test_data, y_test_data),
+                     callbacks=[keras.callbacks.EarlyStopping('val_loss', patience=3)])
+        print(tuner.results_summary())
+        best_model = tuner.get_best_models()[0]
+        pickle.dump(best_model, open(output_dir + 'Keras_model', mode='wb'))
+        pickle.dump(tuner, open(output_dir + 'HydroTuner', mode='wb'))
+    else:
+        best_model = pickle.load(open(output_dir + 'Keras_model', mode='rb'))
+        tuner = pickle.load(open(output_dir + 'HydroTuner', mode='rb'))
+
+    print('Keras Regressor:', tuner.get_best_hyperparameters())
+    print(best_model.evaluate(X_test_data, y_test_data))
+    pred = best_model.predict(X_test_data)
+    pred_stats = ma.get_error_stats(y_test_data, pred)
+    print('Keras Regressor:', pred_stats)
+    return best_model
+
+
+def perform_linearregression(X_train_data, X_test_data, y_train_data, y_test_data):
+    """
+    Perform linear regression
+    :param X_train_data: Training data
+    :param X_test_data: Test data
+    :param y_train_data: Training labels
+    :param y_test_data:Test labels
+    :return: Fitted model and prediction statistics
+    """
+
+    lreg = LinearRegression(n_jobs=-2).fit(X_train_data, y_train_data)
+    pred = lreg.predict(X_test_data)
+    pred_stats = ma.get_error_stats(y_test_data, pred)
+    print('Linear regression:', pred_stats)
+    return lreg
 
 
 def perform_mlpregression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, cv=10, grid_iter=10,
@@ -293,22 +429,22 @@ def perform_mlpregression(X_train_data, X_test_data, y_train_data, y_test_data, 
         np.random.seed(random_state)
         param_grid = {
             'hidden_layer_sizes': [(128, ), (128, 64), (128, 64, 32), (128, 64, 32, 8), (128, 64, 32, 8, 4)],
-            'activation': ['relu', 'logistic'],
+            'activation': ['logistic', 'relu'],
             'solver': ['adam', 'sgd'],
             'alpha': [0, 1e-3, 1e-4],
             'batch_size': [200, 500, 1000, 5000],
             'learning_rate': ['constant', 'invscaling', 'adaptive'],
-            'learning_rate_init': [1e-3, 1e-4, 1e-5],
+            'learning_rate_init': [1e-3, 1e-4],
             'power_t': np.random.uniform(0.1, 1, 10).tolist(),
             'max_iter': [500, 1000, 1500],
             'random_state': [0],
-            'tol': [1e-4, 1e-5],
+            'tol': [1e-4],
             'momentum': np.random.uniform(0.1, 1, 10).tolist(),
             'beta_1': np.random.uniform(0.1, 1, 10).tolist(),
             'beta_2': np.random.uniform(0.1, 1, 10).tolist()
         }
         mlp_regressor = algorithm_pipeline(X_train_data, y_train_data, mlp_regressor, param_grid, cv, scoring_fit,
-                                           grid_iter, random_state, 'mlp')
+                                           grid_iter, random_state)
         pickle.dump(mlp_regressor, open(output_dir + 'MLP_model', mode='wb'))
     else:
         mlp_regressor = pickle.load(open(output_dir + 'MLP_model', mode='rb'))
@@ -316,7 +452,7 @@ def perform_mlpregression(X_train_data, X_test_data, y_train_data, y_test_data, 
     print(mlp_regressor.best_params_)
     pred = mlp_regressor.predict(X_test_data)
     pred_stats = ma.get_error_stats(y_test_data, pred)
-    print(pred_stats)
+    print('MLPRegressor:', pred_stats)
     return mlp_regressor
 
 
