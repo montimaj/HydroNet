@@ -362,9 +362,10 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     if not load_model:
         np.random.seed(random_state)
         hypermodel = HydroHyperModel(num_features=X_train_data.shape[1])
+        objective_func = 'mean_squared_error'
         tuner = HydroTuner(
             hypermodel,
-            objective='mse',
+            objective=objective_func,
             max_trials=max_trials,
             executions_per_trial=max_exec_trial,
             directory=output_dir,
@@ -373,7 +374,7 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
         )
         print(tuner.search_space_summary())
         tuner.search(X_train_data, y_train_data, validation_data=(X_test_data, y_test_data),
-                     callbacks=[keras.callbacks.EarlyStopping('val_loss', patience=3)])
+                     callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=3)])
         print(tuner.results_summary())
         best_model = tuner.get_best_models()[0]
         pickle.dump(best_model, open(output_dir + 'Keras_model', mode='wb'))

@@ -136,7 +136,7 @@ def run_ml_gw():
     """
 
     gw_df = gw_driver.create_ml_data(load_df=True)
-    output_dir = '../Outputs/All_Data'
+    output_dir = r'..\Outputs\All_Data'
     test_years = range(2011, 2019)
     drop_attrs = ('YEAR',)
     hydronet = HydroNet(gw_df, output_dir)
