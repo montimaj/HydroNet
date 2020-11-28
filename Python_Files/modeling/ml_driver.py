@@ -373,7 +373,7 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
             seed=random_state
         )
         print(tuner.search_space_summary())
-        tuner.search(X_train_data, y_train_data, validation_data=(X_test_data, y_test_data),
+        tuner.search(X_train_data, y_train_data, validation_split=0.1,
                      callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=3)])
         print(tuner.results_summary())
         best_model = tuner.get_best_models()[0]
