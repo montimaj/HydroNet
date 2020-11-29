@@ -48,15 +48,17 @@ def scikit_hypertuning(X_train_data, y_train_data, model, param_grid, cv=10, sco
 
 class HydroHyperModel(HyperModel):
 
-    def __init__(self, num_features, negative_values=False):
+    def __init__(self, num_features, model_number=1, negative_values=False):
         """
         HyperModel child class constructor
         :param num_features: Number of features in training data
+        :param model_number: Set model number, each model has different layers and parameters
         :param negative_values: Set True if data has negative values
         """
 
         super().__init__()
         self.num_features = num_features
+        self.model_number = model_number
         self.negative_values = negative_values
 
     def build(self, hp):
@@ -64,6 +66,39 @@ class HydroHyperModel(HyperModel):
         This function is overriden
         :param hp: HyperModel object
         :return: None
+        """
+
+        model = None
+        if self.model_number == 1:
+            model = self.model1(hp)
+        elif self.model_number == 2:
+            model = self.model2(hp)
+        lr = hp.Choice('learning_rate', [1e-3, 1e-4, 1e-5])
+        beta_1 = hp.Choice('beta_1', [0.7, 0.8, 0.9])
+        beta_2 = hp.Choice('beta_2', [0.799, 0.899, 0.999])
+        momentum = hp.Choice('momentum', [0.0, 0.3, 0.5, 0.7, 0.9])
+        rho = hp.Choice('rho', [0.7, 0.8, 0.9])
+        # optimizer = hp.Choice('optimizer', ['adam', 'sgd', 'rmsprop', 'adagrad', 'adadelta'])
+        optimizer = 'rmsprop'
+        optimizer_dict = {
+            'adam': keras.optimizers.Adam(learning_rate=lr, beta_1=beta_1, beta_2=beta_2),
+            'sgd': keras.optimizers.SGD(learning_rate=lr, momentum=momentum),
+            'rmsprop': keras.optimizers.RMSprop(learning_rate=lr, rho=0.9, momentum=0.3),
+            'adagrad': keras.optimizers.Adagrad(learning_rate=lr),
+            'adadelta': keras.optimizers.Adadelta(learning_rate=lr, rho=rho),
+        }
+        loss = hp.Choice('loss', ['mse', 'mae', 'huber_loss'])
+        model.compile(
+            optimizer=optimizer_dict[optimizer],
+            loss=loss,
+            metrics=['mse', 'mae', r2])
+        return model
+
+    def model1(self, hp):
+        """
+        Custom model 1
+        :param hp: HyperModel object
+        :return: Keras model object
         """
 
         model = Sequential()
@@ -94,32 +129,46 @@ class HydroHyperModel(HyperModel):
             model.add(Dense(units=units, activation=hidden_layer_activation))
             drop_rate = hp.Choice('drop_rate_' + str(i), [0.01, 0.05, 0.1, 0.15, 0.2])
             model.add(Dropout(rate=drop_rate))
-
         output_activation_list = ['tanh', 'swish', 'softsign']
         if not self.negative_values:
             output_activation_list = input_activation_list
         output_activation = hp.Choice('output_activation', output_activation_list)
         model.add(BatchNormalization())
         model.add(Dense(1, activation=output_activation))
-        lr = hp.Choice('learning_rate', [1e-2, 1e-3, 1e-4, 1e-5])
-        beta_1 = hp.Choice('beta_1', [0.7, 0.8, 0.9])
-        beta_2 = hp.Choice('beta_2', [0.799, 0.899, 0.999])
-        epsilon = hp.Choice('epsilon', [1e-7, 1e-8, 1e-9])
-        momentum = hp.Choice('momentum', [0.0, 0.3, 0.5, 0.7, 0.9])
-        rho = hp.Choice('rho', [0.7, 0.8, 0.9])
-        optimizer = hp.Choice('optimizer', ['adam', 'sgd', 'rmsprop', 'adagrad', 'adadelta'])
-        optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=lr, beta_1=beta_1, beta_2=beta_2, epsilon=epsilon),
-            'sgd': keras.optimizers.SGD(learning_rate=lr, momentum=momentum),
-            'rmsprop': keras.optimizers.RMSprop(learning_rate=lr, rho=rho, momentum=momentum, epsilon=epsilon),
-            'adagrad': keras.optimizers.Adagrad(learning_rate=lr, epsilon=epsilon),
-            'adadelta': keras.optimizers.Adadelta(learning_rate=lr, rho=rho, epsilon=epsilon),
-        }
-        loss = hp.Choice('loss', ['mse', 'mae', 'huber_loss'])
-        model.compile(
-            optimizer=optimizer_dict[optimizer],
-            loss=loss,
-            metrics=['mse', 'mae', r2])
+        return model
+
+    def model2(self, hp, hidden_units=(256, 128, 128, 64, 64), output_features=1):
+        """
+        Custom model 2
+        :param hp: HyperModel object
+        :param hidden_units: Tupple of hidden units with each tuple value representing number of neurons in
+        that hidden layer
+        :param output_features: Number of output features
+        :return: Keras model object
+        """
+
+        input_layer = Input(
+            shape=(self.num_features,),
+            name='input_layer',
+        )
+        hidden_layer = Dense(
+            units=hidden_units[0],
+        )(input_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Activation('relu')(hidden_layer)
+        drop_rate = hp.Choice('drop_rate_' + str(0), [0.0, 0.01, 0.05, 0.08, 0.1])
+        hidden_layer = Dropout(drop_rate)(hidden_layer)
+        for unit in hidden_units[1:]:
+            hidden_layer = Dense(
+                units=unit,
+            )(hidden_layer)
+            hidden_layer = BatchNormalization()(hidden_layer)
+            hidden_layer = Activation('relu')(hidden_layer)
+            hidden_layer = Dropout(drop_rate)(hidden_layer)
+        output_layer = Dense(units=output_features)(hidden_layer)
+        output_layer = BatchNormalization()(output_layer)
+        output_layer = Activation('relu')(output_layer)
+        model = Model(input_layer, output_layer)
         return model
 
 
@@ -139,6 +188,7 @@ class HydroTuner(RandomSearch):
             kwargs['batch_size'] = trial.hyperparameters.Int('batch_size', 50, 1000, step=10)
         if epochs is None:
             kwargs['epochs'] = trial.hyperparameters.Int('epochs', 100, 1000, step=100)
+        print('Batch Size, Epochs:', batch_size, epochs)
         super(HydroTuner, self).run_trial(trial, *args, **kwargs)
 
 
@@ -148,7 +198,8 @@ class KerasANN:
     Original authors: Abhisek Maiti, Shashwat Shukla
     Modifier: Sayantan Majumdar
     """
-    def __init__(self, input_features=6, hidden_units=(128, 64, 32), output_features=1, droupout=0.01):
+    def __init__(self, input_features=6, hidden_units=(256, 128, 128, 64, 64),
+                 output_features=1, droupout=0.01):
         """
         Constructor for KerasANN
         :param input_features: Number of input features
@@ -166,7 +217,7 @@ class KerasANN:
                 units=hidden_units[0],
             )(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = Activation('relu')(hidden_layer)
+        hidden_layer = Activation('sigmoid')(hidden_layer)
         hidden_layer = Dropout(droupout)(hidden_layer)
         for unit in hidden_units[1:]:
             hidden_layer = Dense(
@@ -187,7 +238,7 @@ class KerasANN:
         self._is_ready = False
         self._is_trained = False
 
-    def ready(self, optimizer='adam', loss='mse', metrics=('mse', 'mae', r2)):
+    def ready(self, optimizer='rmsprop', loss='mse', metrics=('mse', 'mae', r2)):
         """
         Compiles model object
         :param optimizer: Keras optimizer function
@@ -196,8 +247,17 @@ class KerasANN:
         :return: None
         """
 
+        optimizer_dict = {
+            'adam': keras.optimizers.Adam(),
+            'sgd': keras.optimizers.SGD(momentum=0.3),
+            'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
+            'adagrad': keras.optimizers.Adagrad(),
+            'adadelta': keras.optimizers.Adadelta(),
+            'nadam': keras.optimizers.Nadam()
+        }
+
         self._model.compile(
-            optimizer=optimizer,
+            optimizer=optimizer_dict[optimizer],
             loss=loss,
             metrics=list(metrics)
         )
@@ -250,4 +310,4 @@ def store_load_keras_model(output_file, model=None):
     if model:
         model.save(filepath=output_file, include_optimizer=True)
     else:
-        return keras.models.load_model(output_file)
+        return keras.models.load_model(output_file, custom_objects={'r2': r2})

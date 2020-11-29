@@ -349,6 +349,22 @@ def run_analysis(actual_gw_dir, pred_gw_dir, grace_csv, out_dir, input_gmd_file=
         create_gmd_time_series_forecast_plot(ts_df, gmd_name_list=gmd_name_list)
 
 
+def generate_scatter_plot(y_true, y_pred):
+    """
+    Plot True and Predicted values
+    :param y_true: True values
+    :param y_pred: Predicted values
+    :return: None
+    """
+
+    plt.scatter(y_true, y_pred)
+    plt.plot(y_true, y_true, color='r')
+    plt.xlabel('Actual Pumping')
+    plt.ylabel('Predicted Pumping')
+    plt.show()
+
+
+
 def generate_feature_box_plots(input_csv_file, year_col='YEAR', temporal_features=('ET', 'P'), pred_attr='GW',
                                drop_attr=('GMD',)):
     """

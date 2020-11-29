@@ -137,12 +137,14 @@ class HydroNet:
             batch_size = kwargs.get('batch_size', None)
             epochs = kwargs.get('epochs', None)
             use_keras_tuner = kwargs.get('use_keras_tuner', True)
+            model_number = kwargs.get('model_number', 2)
             self.built_model = ml_driver.perform_kerasregression(x_train_data, x_test_data, self.y_train, self.y_test,
                                                                  self.model_output_dir, random_state=self.random_state,
                                                                  validation_split=validation_split,
                                                                  max_trials=max_trials, max_exec_trial=max_exec_trial,
                                                                  batch_size=batch_size, epochs=epochs,
-                                                                 use_keras_tuner=use_keras_tuner)
+                                                                 use_keras_tuner=use_keras_tuner, load_model=load_model,
+                                                                 model_number=model_number)
 
 
 def run_ml_gw():
@@ -159,8 +161,8 @@ def run_ml_gw():
     hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=True,
                                 load_data=True)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
-    hydronet.perform_regression(use_pca_data=False, use_keras_tuner=True, validation_split=0.1, max_trials=1000,
-                                max_exec_trials=3)
+    hydronet.perform_regression(use_pca_data=False, use_keras_tuner=True, validation_split=0.1, max_trials=20,
+                                max_exec_trials=3, batch_size=500, epochs=500, load_model=False, model_number=2)
 
 
 run_ml_gw()

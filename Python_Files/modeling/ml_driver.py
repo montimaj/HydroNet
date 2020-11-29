@@ -247,7 +247,7 @@ def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(
 
 def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, max_trials=20,
                             max_exec_trial=5, validation_split=0.1, batch_size=None, epochs=None, random_state=0,
-                            use_keras_tuner=True, load_model=False):
+                            use_keras_tuner=True, load_model=False, model_number=2):
     """
     Perform regression using Tensorflow and Keras
     :param X_train_data: Training data as Pandas dataframe
@@ -262,7 +262,8 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     :param epochs: Set a positive value. By default, epochs is auto-tuned
     :param random_state: PRNG seed
     :param use_keras_tuner: Set False to use KerasANN without auto hypertuning
-    :param load_model: Set True to load existing model
+    :param load_model: Set True to load existing model. Load model won't work with custom metric in TF 2.1.0
+    :param model_number: Set model number for Keras-Tuner
     :return: Fitted model and prediction statistics
     """
 
@@ -270,15 +271,15 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     config.gpu_options.allow_growth = True
     session = tf.compat.v1.Session(config=config)
     tf.compat.v1.keras.backend.set_session(session)
-    kerastuner_output_file = output_dir + 'KerasTunerANN'
-    kerasann_output_file = output_dir + 'KerasANN'
+    kerastuner_output_file = output_dir + 'KerasTunerANN.tf'
+    kerasann_output_file = output_dir + 'KerasANN.tf'
     if not load_model:
         num_features = X_train_data.shape[1]
         if use_keras_tuner:
             objective_func = 'mse'
             project_name = 'HydroNet_Keras'
             negative_values = (X_train_data.values < 0).any()
-            hypermodel = HydroHyperModel(num_features, negative_values)
+            hypermodel = HydroHyperModel(num_features, model_number, negative_values)
             tuner = HydroTuner(
                 hypermodel,
                 objective=objective_func,
@@ -290,7 +291,7 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
             )
             print(tuner.search_space_summary())
             tuner.search(X_train_data, y_train_data, validation_split=validation_split, batch_size=batch_size,
-                         epochs=epochs, callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=3)])
+                         epochs=epochs, callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=100)])
             trained_model = tuner.get_best_models()[0]
             store_load_keras_model(model=trained_model, output_file=kerastuner_output_file)
         else:
@@ -307,9 +308,10 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
 
     print(trained_model.summary())
     print('Keras Regressor')
-    print(trained_model.evaluate(X_test_data, y_test_data))
+    if use_keras_tuner:
+        print(trained_model.evaluate(X_test_data, y_test_data))
     pred = trained_model.predict(X_test_data)
-    print(y_test_data, pred)
+    ma.generate_scatter_plot(y_test_data, pred)
     pred_stats = ma.get_error_stats(y_test_data, pred)
     print('Keras Regressor:', pred_stats)
     return trained_model
