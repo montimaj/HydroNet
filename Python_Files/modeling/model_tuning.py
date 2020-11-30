@@ -4,7 +4,7 @@
 import tensorflow.keras.backend as kb
 import tensorflow as tf
 from sklearn.model_selection import RandomizedSearchCV
-from sklearn.model_selection import KFold
+from sklearn.model_selection import RepeatedKFold
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Activation, Dense, Dropout, BatchNormalization
 from tensorflow.keras.models import Sequential
@@ -261,7 +261,7 @@ class KerasANN:
         """
 
         assert self._is_ready
-        kfold = KFold(n_splits=fold_count, shuffle=True, random_state=23)
+        kfold = RepeatedKFold(n_splits=fold_count, random_state=42)
         for train, validation in kfold.split(x_train, y_train):
             self._model.fit(
                 x=x_train[train],
