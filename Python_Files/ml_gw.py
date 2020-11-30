@@ -162,7 +162,7 @@ def run_ml_gw():
                                 load_data=True)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
     hydronet.perform_regression(use_pca_data=False, use_keras_tuner=False, validation_split=0.1, max_trials=1,
-                                max_exec_trials=3, batch_size=500, epochs=100, load_model=False, model_number=2)
+                                max_exec_trials=10, batch_size=32, epochs=2000, load_model=False, model_number=2)
 
 
 run_ml_gw()

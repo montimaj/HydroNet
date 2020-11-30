@@ -1,7 +1,7 @@
 KerasANN
 
-hidden_units=(256, 128, 128, 128, 128, 128, 256) # Test R2: 0.64, bs: 500, epochs: 100, RMSProp(centered=True, momentum=False)
-hidden_units = (512, 256, 256, 256, 256, 512)  # Test R2: 0.63, bs: 500, epochs: 100, RMSProp(centered=True, momentum=False)
-hidden_units=(512, 512, 512, 512, 512, 512)    # Test R2: 0.62, bs: 500, epochs: 100, RMSProp(centered=True, momentum=False)
-hidden_units = (256, 128, 128, 128, 128, 256)  # Test R2: 0.61, bs: 500, epochs: 100, RMSProp(centered=True, momentum=False)
-hidden_units=(128, 128, 128, 128, 128, 128, 128, 128), # Test R2: 0.61, bs: 500, epochs: 100, RMSProp(centered=True, momentum=False)
+hidden_units=(256, 128, 128, 128, 128, 128, 256) # Test R2: 0.64, bs: 500, epochs: 100, Adam
+hidden_units = (512, 256, 256, 256, 256, 512)  # Test R2: 0.63, bs: 500, epochs: 100, Adam
+hidden_units=(512, 512, 512, 512, 512, 512)    # Test R2: 0.62, bs: 500, epochs: 100, Adam
+hidden_units = (256, 128, 128, 128, 128, 256)  # Test R2: 0.61, bs: 500, epochs: 100, Adam
+hidden_units=(128, 128, 128, 128, 128, 128, 128, 128), # Test R2: 0.61, bs: 500, epochs: 100, Adam

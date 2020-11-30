@@ -291,14 +291,14 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
             )
             print(tuner.search_space_summary())
             tuner.search(X_train_data, y_train_data, validation_split=validation_split, batch_size=batch_size,
-                         epochs=epochs, callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=100)])
+                         epochs=epochs, callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=5)])
             trained_model = tuner.get_best_models()[0]
             store_load_keras_model(model=trained_model, output_file=kerastuner_output_file)
         else:
             keras_ann = KerasANN(input_features=num_features, output_features=1)
             keras_ann.ready()
             trained_model = keras_ann.learn(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data,
-                                            batch_size=batch_size, epochs=epochs)
+                                            batch_size=batch_size, epochs=epochs, fold_count=max_exec_trial)
             store_load_keras_model(model=trained_model, output_file=kerasann_output_file)
     else:
         if use_keras_tuner:

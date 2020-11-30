@@ -198,7 +198,7 @@ class KerasANN:
     Original authors: Abhisek Maiti, Shashwat Shukla
     Modifier: Sayantan Majumdar
     """
-    def __init__(self, input_features=6, hidden_units=(256, 128, 128, 128, 128, 128, 128, 64),
+    def __init__(self, input_features=6, hidden_units=(256, 128, 128, 128, 128, 128, 256),
                  output_features=1, dropout=0.01):
         """
         Constructor for KerasANN
@@ -238,7 +238,7 @@ class KerasANN:
         self._is_ready = False
         self._is_trained = False
 
-    def ready(self, optimizer='adam', loss='mse', metrics=('mse', 'mae', r2)):
+    def ready(self, optimizer='adam', loss='mse', metrics=('mse', 'mae')):
         """
         Compiles model object
         :param optimizer: Keras optimizer function
@@ -248,7 +248,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(),
+            'adam': keras.optimizers.Adam(learning_rate=1e-4),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
@@ -264,7 +264,7 @@ class KerasANN:
         print(self._model.summary())
         self._is_ready = True
 
-    def learn(self, x_train, x_test, y_train, y_test, batch_size=1000, epochs=5, fold_count=3):
+    def learn(self, x_train, x_test, y_train, y_test, batch_size=1000, epochs=5, fold_count=10):
         """
         Call this to build model
         :param x_train: Training data as numpy array
@@ -283,17 +283,12 @@ class KerasANN:
             self._model.fit(
                 x=x_train[train],
                 y=y_train[train],
+                validation_data=(x_train[validation], y_train[validation]),
                 batch_size=batch_size,
                 epochs=epochs,
-                verbose=1
-            )
-            scores = self._model.evaluate(
-                x_train[validation],
-                y_train[validation],
                 verbose=1,
-                batch_size=batch_size
+                callbacks=[keras.callbacks.EarlyStopping('val_mse', patience=5)]
             )
-            print(scores)
         test_scores = self._model.evaluate(x=x_test, y=y_test, verbose=1)
         print('Test Scores\n', test_scores)
         self._is_trained = True
@@ -311,4 +306,4 @@ def store_load_keras_model(output_file, model=None):
     if model:
         model.save(filepath=output_file, include_optimizer=True)
     else:
-        return keras.models.load_model(output_file, custom_objects={'r2': r2})
+        return keras.models.load_model(output_file)
