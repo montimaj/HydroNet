@@ -312,8 +312,11 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
         print(trained_model.evaluate(X_test_data, y_test_data))
     pred = trained_model.predict(X_test_data)
     ma.generate_scatter_plot(y_test_data, pred)
-    pred_stats = ma.get_error_stats(y_test_data, pred)
-    print('Keras Regressor:', pred_stats)
+    test_stats = ma.get_error_stats(y_test_data, pred)
+    pred = trained_model.predict(X_train_data)
+    ma.generate_scatter_plot(y_train_data, pred)
+    train_stats = ma.get_error_stats(y_train_data, pred)
+    print('Train, Test Stats:', train_stats, test_stats)
     return trained_model
 
 

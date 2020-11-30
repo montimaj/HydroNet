@@ -137,7 +137,7 @@ class HydroHyperModel(HyperModel):
         model.add(Dense(1, activation=output_activation))
         return model
 
-    def model2(self, hp, hidden_units=(256, 128, 128, 64, 64), output_features=1):
+    def model2(self, hp, hidden_units=(256, 128, 128, 128, 64), output_features=1):
         """
         Custom model 2
         :param hp: HyperModel object
@@ -155,7 +155,7 @@ class HydroHyperModel(HyperModel):
             units=hidden_units[0],
         )(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = Activation('relu')(hidden_layer)
+        hidden_layer = Activation('tanh')(hidden_layer)
         drop_rate = hp.Choice('drop_rate_' + str(0), [0.0, 0.01, 0.05, 0.08, 0.1])
         hidden_layer = Dropout(drop_rate)(hidden_layer)
         for unit in hidden_units[1:]:
@@ -198,15 +198,15 @@ class KerasANN:
     Original authors: Abhisek Maiti, Shashwat Shukla
     Modifier: Sayantan Majumdar
     """
-    def __init__(self, input_features=6, hidden_units=(256, 128, 128, 64, 64),
-                 output_features=1, droupout=0.01):
+    def __init__(self, input_features=6, hidden_units=(256, 128, 128, 128, 128, 128, 128, 64),
+                 output_features=1, dropout=0.01):
         """
         Constructor for KerasANN
         :param input_features: Number of input features
         :param hidden_units: Tupple of hidden units with each tuple value representing number of neurons in
         that hidden layer
         :param output_features: Number of output features
-        :param droupout: Droupout probability
+        :param dropout: Dropout probability
         """
 
         input_layer = Input(
@@ -217,15 +217,15 @@ class KerasANN:
                 units=hidden_units[0],
             )(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = Activation('sigmoid')(hidden_layer)
-        hidden_layer = Dropout(droupout)(hidden_layer)
+        hidden_layer = Activation('relu')(hidden_layer)
+        hidden_layer = Dropout(dropout)(hidden_layer)
         for unit in hidden_units[1:]:
             hidden_layer = Dense(
-                    units=unit,
-                )(hidden_layer)
+                units=unit,
+            )(hidden_layer)
             hidden_layer = BatchNormalization()(hidden_layer)
             hidden_layer = Activation('relu')(hidden_layer)
-            hidden_layer = Dropout(droupout)(hidden_layer)
+            hidden_layer = Dropout(dropout)(hidden_layer)
 
         output_layer = Dense(
                     units=output_features,
@@ -238,7 +238,7 @@ class KerasANN:
         self._is_ready = False
         self._is_trained = False
 
-    def ready(self, optimizer='rmsprop', loss='mse', metrics=('mse', 'mae', r2)):
+    def ready(self, optimizer='adam', loss='mse', metrics=('mse', 'mae', r2)):
         """
         Compiles model object
         :param optimizer: Keras optimizer function
@@ -261,6 +261,7 @@ class KerasANN:
             loss=loss,
             metrics=list(metrics)
         )
+        print(self._model.summary())
         self._is_ready = True
 
     def learn(self, x_train, x_test, y_train, y_test, batch_size=1000, epochs=5, fold_count=3):
