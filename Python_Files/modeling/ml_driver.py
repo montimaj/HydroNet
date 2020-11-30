@@ -70,7 +70,7 @@ def create_dataframe(input_file_dir, out_df, column_names=None, pattern='*.tif',
     return df
 
 
-def reindex_df(df, column_names, ordering=False):
+def reindex_df(df, column_names=None, ordering=False):
     """
     Reindex dataframe columns
     :param df: Input dataframe
@@ -312,13 +312,6 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     print('Keras Regressor')
     if use_keras_tuner:
         trained_model.evaluate(X_test_data, y_test_data)
-    pred = trained_model.predict(X_test_data)
-    ma.generate_scatter_plot(y_test_data, pred)
-    test_stats = ma.get_error_stats(y_test_data, pred)
-    pred = trained_model.predict(X_train_data)
-    ma.generate_scatter_plot(y_train_data, pred)
-    train_stats = ma.get_error_stats(y_train_data, pred)
-    print('Train, Test Stats:', train_stats, test_stats)
     return trained_model
 
 
@@ -339,14 +332,12 @@ def perform_linearregression(X_train_data, X_test_data, y_train_data, y_test_dat
     return lreg
 
 
-def perform_mlpregression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, cv=10, grid_iter=10,
+def perform_mlpregression(X_train_data, y_train_data, output_dir, cv=10, grid_iter=10,
                           scoring_fit='neg_mean_squared_error', random_state=0, load_model=False):
     """
     Perform regression using scikit-learn MLPRegressor
     :param X_train_data: Training data
-    :param X_test_data: Test data
     :param y_train_data: Training labels
-    :param y_test_data:Test labels
     :param output_dir: Output directory to dump the best-fit model
     :param cv: Number of cross-validation folds
     :param grid_iter: Number of grid iterations
@@ -382,9 +373,6 @@ def perform_mlpregression(X_train_data, X_test_data, y_train_data, y_test_data, 
         mlp_regressor = pickle.load(open(output_dir + 'MLP_model', mode='rb'))
     print(np.sqrt(-mlp_regressor.best_score_))
     print(mlp_regressor.best_params_)
-    pred = mlp_regressor.predict(X_test_data)
-    pred_stats = ma.get_error_stats(y_test_data, pred)
-    print('MLPRegressor:', pred_stats)
     return mlp_regressor
 
 

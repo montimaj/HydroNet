@@ -3,6 +3,7 @@
 
 import numpy as np
 from Python_Files.modeling import gw_driver, ml_driver, pca_reduce
+from Python_Files.modeling import model_analysis as ma
 from Python_Files.datalibs.sysops import make_proper_dir_name, makedirs
 
 
@@ -27,6 +28,8 @@ class HydroNet:
         self.pca_output_dir = None
         self.model_output_dir = None
         self.built_model = None
+        self.drop_attrs = None
+        self.pred_attr = None
 
     def scale_and_split_df(self, pred_attr='GW', shuffle=False, drop_attrs=(), test_year=(2012,), test_size=0.2,
                            split_yearly=True, scaling=True, load_data=False):
@@ -45,6 +48,8 @@ class HydroNet:
 
         print('Scaling and splitting df...')
         self.train_test_out_dir = make_proper_dir_name(self.output_dir + 'Train_Test_Data')
+        self.drop_attrs = drop_attrs
+        self.pred_attr = pred_attr
         if not load_data:
             makedirs([self.train_test_out_dir])
         if scaling:
@@ -124,9 +129,9 @@ class HydroNet:
         if model_type == 'mlp':
             cv = kwargs['cv']
             grid_iter = kwargs['grid_iter']
-            self.built_model = ml_driver.perform_mlpregression(x_train_data, x_test_data, self.y_train, self.y_test,
-                                                               self.model_output_dir, cv=cv, grid_iter=grid_iter,
-                                                               random_state=self.random_state, load_model=load_model)
+            self.built_model = ml_driver.perform_mlpregression(x_train_data, self.y_train, self.model_output_dir, cv=cv,
+                                                               grid_iter=grid_iter, random_state=self.random_state,
+                                                               load_model=load_model)
         elif model_type == 'lreg':
             self.built_model = ml_driver.perform_linearregression(x_train_data, x_test_data, self.y_train, self.y_test)
 
@@ -146,6 +151,46 @@ class HydroNet:
                                                                  use_keras_tuner=use_keras_tuner, load_model=load_model,
                                                                  model_number=model_number)
 
+    def get_error_stats(self, use_pca_data=False, inv_scaling=True):
+        """
+        Get error statistics
+        :param use_pca_data: Set True to use PCA transformed data
+        :param inv_scaling: Set False to show error metrics based on scaled data
+        :return: None
+        """
+
+        x_train_data = self.x_train
+        x_test_data = self.x_test
+        if use_pca_data:
+            x_train_data = self.x_train_pca
+            x_test_data = self.x_test_pca
+        pred_train = self.built_model.predict(x_train_data)
+        pred_test = self.built_model.predict(x_test_data)
+        if inv_scaling:
+            x_train_data[self.pred_attr] = self.y_train
+            x_test_data[self.pred_attr] = self.y_test
+            for drop_attr in self.drop_attrs:
+                x_train_data[drop_attr] = self.y_train
+                x_test_data[drop_attr] = self.y_test
+            x_train_data = ml_driver.reindex_df(x_train_data)
+            x_test_data = ml_driver.reindex_df(x_test_data)
+            x_train_data[x_train_data.columns] = self.scaler.inverse_transform(x_train_data[x_train_data.columns])
+            x_test_data[x_test_data.columns] = self.scaler.inverse_transform(x_test_data[x_test_data.columns])
+            self.y_train = x_train_data[self.pred_attr].to_numpy().copy().ravel()
+            self.y_test = x_test_data[self.pred_attr].to_numpy().copy().ravel()
+            x_train_data[self.pred_attr] = pred_train
+            x_test_data[self.pred_attr] = pred_test
+            x_train_data[x_train_data.columns] = self.scaler.inverse_transform(x_train_data)
+            x_test_data[x_test_data.columns] = self.scaler.inverse_transform(x_test_data)
+            pred_train = x_train_data[self.pred_attr].to_numpy().ravel()
+            pred_test = x_test_data[self.pred_attr].to_numpy().ravel()
+
+        ma.generate_scatter_plot(self.y_test, pred_test)
+        ma.generate_scatter_plot(self.y_train, pred_train)
+        test_stats = ma.get_error_stats(self.y_test, pred_test)
+        train_stats = ma.get_error_stats(self.y_train, pred_train)
+        print('Train, Test Stats:', train_stats, test_stats)
+
 
 def run_ml_gw():
     """
@@ -161,8 +206,10 @@ def run_ml_gw():
     hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=True,
                                 load_data=True)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
-    hydronet.perform_regression(use_pca_data=False, use_keras_tuner=False, validation_split=0.1, max_trials=6,
-                                max_exec_trials=10, batch_size=500, epochs=500, load_model=False, model_number=2)
+    hydronet.perform_regression(use_pca_data=False, model_type='kreg', use_keras_tuner=False, validation_split=0.1,
+                                max_trials=6, max_exec_trials=10, batch_size=500, epochs=500, load_model=False,
+                                model_number=2)
+    hydronet.get_error_stats(inv_scaling=True)
 
 
 run_ml_gw()

@@ -137,7 +137,7 @@ class HydroHyperModel(HyperModel):
         model.add(Dense(1, activation=output_activation))
         return model
 
-    def model2(self, hp, hidden_units=(256, 128, 128, 128, 128, 128, 256), output_features=1):
+    def model2(self, hp, hidden_units=(256, 128, 128, 128, 128, 256), output_features=1):
         """
         Custom model 2
         :param hp: HyperModel object
@@ -160,7 +160,7 @@ class HydroHyperModel(HyperModel):
             hidden_layer = Dropout(drop_rate)(hidden_layer)
         output_layer = Dense(units=output_features)(hidden_layer)
         output_layer = BatchNormalization()(output_layer)
-        output_layer = Activation('sigmoid')(output_layer)
+        output_layer = Activation('relu')(output_layer)
         model = Model(input_layer, output_layer)
         return model
 
@@ -191,7 +191,7 @@ class KerasANN:
     Original authors: Abhisek Maiti, Shashwat Shukla
     Modifier: Sayantan Majumdar
     """
-    def __init__(self, input_features=6, hidden_units=(256, 128, 128, 128, 128, 128, 256),
+    def __init__(self, input_features=6, hidden_units=(256, 128, 128, 128, 128, 256),
                  output_features=1, dropout=0.01):
         """
         Constructor for KerasANN
@@ -214,7 +214,7 @@ class KerasANN:
             hidden_layer = Dropout(dropout)(hidden_layer)
         output_layer = Dense(units=output_features,)(hidden_layer)
         output_layer = BatchNormalization()(output_layer)
-        output_layer = Activation('sigmoid')(output_layer)
+        output_layer = Activation('relu')(output_layer)
         self._model = Model(input_layer, output_layer)
         self._input_features = input_features
         self._output_features = output_features
@@ -231,7 +231,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(),
+            'adam': keras.optimizers.Adam(learning_rate=1e-4, epsilon=1e-9),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),

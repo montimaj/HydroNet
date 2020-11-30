@@ -364,7 +364,6 @@ def generate_scatter_plot(y_true, y_pred):
     plt.show()
 
 
-
 def generate_feature_box_plots(input_csv_file, year_col='YEAR', temporal_features=('ET', 'P'), pred_attr='GW',
                                drop_attr=('GMD',)):
     """
