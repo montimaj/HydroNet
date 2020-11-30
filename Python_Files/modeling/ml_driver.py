@@ -291,8 +291,10 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
             )
             print(tuner.search_space_summary())
             tuner.search(X_train_data, y_train_data, validation_split=validation_split, batch_size=batch_size,
-                         epochs=epochs, callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=5)])
+                         epochs=epochs, callbacks=[keras.callbacks.EarlyStopping(objective_func, patience=50)])
             trained_model = tuner.get_best_models()[0]
+            best_trial = tuner.oracle.get_best_trials()[0]
+            print(best_trial.summary())
             store_load_keras_model(model=trained_model, output_file=kerastuner_output_file)
         else:
             keras_ann = KerasANN(input_features=num_features, output_features=1)
@@ -309,7 +311,7 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     print(trained_model.summary())
     print('Keras Regressor')
     if use_keras_tuner:
-        print(trained_model.evaluate(X_test_data, y_test_data))
+        trained_model.evaluate(X_test_data, y_test_data)
     pred = trained_model.predict(X_test_data)
     ma.generate_scatter_plot(y_test_data, pred)
     test_stats = ma.get_error_stats(y_test_data, pred)

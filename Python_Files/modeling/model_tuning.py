@@ -73,21 +73,21 @@ class HydroHyperModel(HyperModel):
             model = self.model1(hp)
         elif self.model_number == 2:
             model = self.model2(hp)
-        lr = hp.Choice('learning_rate', [1e-3, 1e-4, 1e-5])
-        beta_1 = hp.Choice('beta_1', [0.7, 0.8, 0.9])
-        beta_2 = hp.Choice('beta_2', [0.799, 0.899, 0.999])
-        momentum = hp.Choice('momentum', [0.0, 0.3, 0.5, 0.7, 0.9])
-        rho = hp.Choice('rho', [0.7, 0.8, 0.9])
-        # optimizer = hp.Choice('optimizer', ['adam', 'sgd', 'rmsprop', 'adagrad', 'adadelta'])
-        optimizer = 'rmsprop'
+        # lr = hp.Choice('learning_rate', [1e-3, 1e-4, 1e-5])
+        # beta_1 = hp.Choice('beta_1', [0.7, 0.8, 0.9])
+        # beta_2 = hp.Choice('beta_2', [0.799, 0.899, 0.999])
+        # momentum = hp.Choice('momentum', [0.0, 0.3, 0.5, 0.7, 0.9])
+        # rho = hp.Choice('rho', [0.7, 0.8, 0.9])
+        # epsilon = hp.Choice('epsilon', [1e-7, 1e-4, 1e-2, 0.1, 1])
+        optimizer = hp.Choice('optimizer', ['adam', 'sgd', 'rmsprop', 'adagrad', 'adadelta'])
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=lr, beta_1=beta_1, beta_2=beta_2),
-            'sgd': keras.optimizers.SGD(learning_rate=lr, momentum=momentum),
-            'rmsprop': keras.optimizers.RMSprop(learning_rate=lr, rho=0.9, momentum=0.3),
-            'adagrad': keras.optimizers.Adagrad(learning_rate=lr),
-            'adadelta': keras.optimizers.Adadelta(learning_rate=lr, rho=rho),
+            'adam': keras.optimizers.Adam(),
+            'sgd': keras.optimizers.SGD(),
+            'rmsprop': keras.optimizers.RMSprop(),
+            'adagrad': keras.optimizers.Adagrad(),
+            'adadelta': keras.optimizers.Adadelta(),
         }
-        loss = hp.Choice('loss', ['mse', 'mae', 'huber_loss'])
+        loss = hp.Choice('loss', ['mse', 'huber_loss'])
         model.compile(
             optimizer=optimizer_dict[optimizer],
             loss=loss,
@@ -137,7 +137,7 @@ class HydroHyperModel(HyperModel):
         model.add(Dense(1, activation=output_activation))
         return model
 
-    def model2(self, hp, hidden_units=(256, 128, 128, 128, 64), output_features=1):
+    def model2(self, hp, hidden_units=(256, 128, 128, 128, 128, 128, 256), output_features=1):
         """
         Custom model 2
         :param hp: HyperModel object
@@ -147,27 +147,20 @@ class HydroHyperModel(HyperModel):
         :return: Keras model object
         """
 
-        input_layer = Input(
-            shape=(self.num_features,),
-            name='input_layer',
-        )
-        hidden_layer = Dense(
-            units=hidden_units[0],
-        )(input_layer)
+        input_layer = Input(shape=(self.num_features,), name='input_layer',)
+        hidden_layer = Dense(units=hidden_units[0],)(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = Activation('tanh')(hidden_layer)
+        hidden_layer = Activation('relu')(hidden_layer)
         drop_rate = hp.Choice('drop_rate_' + str(0), [0.0, 0.01, 0.05, 0.08, 0.1])
         hidden_layer = Dropout(drop_rate)(hidden_layer)
         for unit in hidden_units[1:]:
-            hidden_layer = Dense(
-                units=unit,
-            )(hidden_layer)
+            hidden_layer = Dense(units=unit,)(hidden_layer)
             hidden_layer = BatchNormalization()(hidden_layer)
             hidden_layer = Activation('relu')(hidden_layer)
             hidden_layer = Dropout(drop_rate)(hidden_layer)
         output_layer = Dense(units=output_features)(hidden_layer)
         output_layer = BatchNormalization()(output_layer)
-        output_layer = Activation('relu')(output_layer)
+        output_layer = Activation('sigmoid')(output_layer)
         model = Model(input_layer, output_layer)
         return model
 
@@ -209,36 +202,26 @@ class KerasANN:
         :param dropout: Dropout probability
         """
 
-        input_layer = Input(
-                shape=(input_features,),
-                name='input_layer',
-            )
-        hidden_layer = Dense(
-                units=hidden_units[0],
-            )(input_layer)
+        input_layer = Input(shape=(input_features,), name='input_layer',)
+        hidden_layer = Dense(units=hidden_units[0],)(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Activation('relu')(hidden_layer)
         hidden_layer = Dropout(dropout)(hidden_layer)
         for unit in hidden_units[1:]:
-            hidden_layer = Dense(
-                units=unit,
-            )(hidden_layer)
+            hidden_layer = Dense(units=unit,)(hidden_layer)
             hidden_layer = BatchNormalization()(hidden_layer)
             hidden_layer = Activation('relu')(hidden_layer)
             hidden_layer = Dropout(dropout)(hidden_layer)
-
-        output_layer = Dense(
-                    units=output_features,
-                )(hidden_layer)
+        output_layer = Dense(units=output_features,)(hidden_layer)
         output_layer = BatchNormalization()(output_layer)
-        output_layer = Activation('relu')(output_layer)
+        output_layer = Activation('sigmoid')(output_layer)
         self._model = Model(input_layer, output_layer)
         self._input_features = input_features
         self._output_features = output_features
         self._is_ready = False
         self._is_trained = False
 
-    def ready(self, optimizer='adam', loss='mse', metrics=('mse', 'mae')):
+    def ready(self, optimizer='adam', loss='huber_loss', metrics=('mse', 'mae', r2)):
         """
         Compiles model object
         :param optimizer: Keras optimizer function
@@ -248,7 +231,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-4),
+            'adam': keras.optimizers.Adam(),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
@@ -287,7 +270,7 @@ class KerasANN:
                 batch_size=batch_size,
                 epochs=epochs,
                 verbose=1,
-                callbacks=[keras.callbacks.EarlyStopping('val_mse', patience=5)]
+                callbacks=[keras.callbacks.EarlyStopping('val_loss', patience=50)]
             )
         test_scores = self._model.evaluate(x=x_test, y=y_test, verbose=1)
         print('Test Scores\n', test_scores)
