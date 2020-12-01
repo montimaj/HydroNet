@@ -346,7 +346,8 @@ def perform_lstm_regression(X_train_data, X_test_data, y_train_data, y_test_data
         np.random.seed(random_state)
         lstm = HydroLSTM(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data,
                          timesteps=timesteps)
-        lstm.stacked_lstm(bidirectional=bidirectional)
+        # lstm.stacked_lstm(bidirectional=bidirectional)
+        lstm.vanilla_lstm()
         lstm.ready()
         lstm_model = lstm.learn(batch_size=batch_size, epochs=epochs, fold_count=fold_count, repeats=n_repeats)
         store_load_keras_model(lstm_output_file, lstm_model)

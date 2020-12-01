@@ -311,13 +311,13 @@ class HydroLSTM:
         """
 
         model = Sequential()
-        model.add(LSTM(units, activation='relu', input_shape=(self.x_train[1], self.x_train[2])))
+        model.add(LSTM(units, activation='relu', input_shape=(self.x_train.shape[1], self.x_train.shape[2])))
         model.add(BatchNormalization())
         model.add(Dense(1, activation='relu'))
         self.model = model
         return model
 
-    def stacked_lstm(self, units=(256, 128, 128, 128, 128, 256), dropout=0.01, bidirectional=False):
+    def stacked_lstm(self, units=(64, 64, 64, 64, 64), dropout=0.01, bidirectional=False):
         """
         Implements stacked LSTM
         :param units: Tuple of units in the LSTM, tuple length indicates the total number of stacks used
@@ -409,7 +409,7 @@ class HydroLSTM:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-7),
+            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-4),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
@@ -443,6 +443,7 @@ class HydroLSTM:
                 batch_size=batch_size,
                 epochs=epochs,
                 verbose=1,
+                shuffle=True,
                 callbacks=[keras.callbacks.EarlyStopping('val_loss', patience=50)]
             )
         test_scores = self.model.evaluate(x=self.x_test, y=self.y_test, verbose=1)
