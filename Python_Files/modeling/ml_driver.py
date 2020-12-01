@@ -297,7 +297,7 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
             print(best_trial.summary())
             store_load_keras_model(model=trained_model, output_file=kerastuner_output_file)
         else:
-            keras_ann = KerasANN(input_features=num_features, output_features=1)
+            keras_ann = KerasANN(output_dir, input_features=num_features, output_features=1)
             keras_ann.ready()
             trained_model = keras_ann.learn(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data,
                                             batch_size=batch_size, epochs=epochs, fold_count=max_trials,
@@ -344,7 +344,7 @@ def perform_lstm_regression(X_train_data, X_test_data, y_train_data, y_test_data
     lstm_output_file = output_dir + 'LSTM.tf'
     if not load_model:
         np.random.seed(random_state)
-        lstm = HydroLSTM(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data,
+        lstm = HydroLSTM(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data, output_dir,
                          timesteps=timesteps)
         # lstm.stacked_lstm(bidirectional=bidirectional)
         lstm.vanilla_lstm()

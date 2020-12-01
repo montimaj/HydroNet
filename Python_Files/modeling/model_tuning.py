@@ -9,9 +9,12 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Activation, Dense, Dropout, BatchNormalization, LSTM, ConvLSTM2D, Conv1D
 from tensorflow.keras.layers import Bidirectional, TimeDistributed, MaxPooling1D, Flatten
 from tensorflow.keras.models import Sequential
+from tensorflow.keras.utils import plot_model
+from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
 from kerastuner.tuners import RandomSearch
 from kerastuner import HyperModel
 from tensorflow import keras
+from Python_Files.datalibs.sysops import make_proper_dir_name, makedirs
 
 
 def r2(y_true, y_pred):
@@ -192,10 +195,11 @@ class KerasANN:
     Original authors: Abhisek Maiti, Shashwat Shukla
     Modifier: Sayantan Majumdar
     """
-    def __init__(self, input_features=6, hidden_units=(256, 128, 128, 128, 128, 256),
-                 output_features=1, dropout=0.01):
+    def __init__(self, output_dir, input_features=6, hidden_units=(256, 128, 128, 128, 128, 256),
+                 output_features=1, dropout=0.1):
         """
         Constructor for KerasANN
+        :param output_dir: Output directory for storing plots and history
         :param input_features: Number of input features
         :param hidden_units: Tupple of hidden units with each tuple value representing number of neurons in
         that hidden layer
@@ -219,10 +223,12 @@ class KerasANN:
         self._model = Model(input_layer, output_layer)
         self._input_features = input_features
         self._output_features = output_features
+        self._output_dir = make_proper_dir_name(output_dir + 'KerasANN_History')
+        makedirs([self._output_dir])
         self._is_ready = False
         self._is_trained = False
 
-    def ready(self, optimizer='adam', loss='huber_loss', metrics=('mse', 'mae', r2)):
+    def ready(self, optimizer='adam', loss='huber_loss', metrics=('mse', 'mae')):
         """
         Compiles model object
         :param optimizer: Keras optimizer function
@@ -232,7 +238,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-4, epsilon=1e-7),
+            'adam': keras.optimizers.Adam(learning_rate=1e-4, epsilon=1e-9),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
@@ -246,6 +252,8 @@ class KerasANN:
             metrics=list(metrics)
         )
         print(self._model.summary())
+        plot_model(self._model, to_file=self._output_dir + 'model_plot.png', show_shapes=True, show_layer_names=True,
+                   dpi=330)
         self._is_ready = True
 
     def learn(self, x_train, x_test, y_train, y_test, batch_size=1000, epochs=5, fold_count=10, repeats=10):
@@ -264,6 +272,7 @@ class KerasANN:
 
         assert self._is_ready
         kfold = RepeatedKFold(n_splits=fold_count, n_repeats=repeats, random_state=42)
+        csv_logger = CSVLogger(self._output_dir + 'Model_History.csv', append=True)
         for train, validation in kfold.split(x_train, y_train):
             self._model.fit(
                 x=x_train[train],
@@ -272,7 +281,7 @@ class KerasANN:
                 batch_size=batch_size,
                 epochs=epochs,
                 verbose=1,
-                callbacks=[keras.callbacks.EarlyStopping('val_loss', patience=50)]
+                callbacks=[EarlyStopping('val_loss', patience=50), csv_logger]
             )
         test_scores = self._model.evaluate(x=x_test, y=y_test, verbose=1)
         print('Test Scores\n', test_scores)
@@ -281,13 +290,14 @@ class KerasANN:
 
 
 class HydroLSTM:
-    def __init__(self, x_train, x_test, y_train, y_test, timesteps=1):
+    def __init__(self, x_train, x_test, y_train, y_test, output_dir, timesteps=1):
         """
         Constructor for class
         :param x_train: Training data as numpy array
         :param x_test: Test data as numpy array
         :param y_train: Training labels as numpy array
         :param y_test: Test labels as numpy array
+        :param output_dir: Output directory for storing plots and history
         :param timesteps: Number of timesteps
         """
 
@@ -299,19 +309,23 @@ class HydroLSTM:
         self.x_test_conv_lstm = x_test.reshape(x_test.shape[0], 1, 1, timesteps, x_test.shape[1])
         self.y_train = y_train
         self.y_test = y_test
+        self.output_dir = make_proper_dir_name(output_dir + 'LSTM_History')
+        makedirs([self.output_dir])
         self.timesteps = timesteps
         self.n_seq = 1
         self.model = None
 
-    def vanilla_lstm(self, units=50):
+    def vanilla_lstm(self, units=1024, dropout=0.01):
         """
         Implements vanilla LSTM
         :param units: Number of units in LSTM
+        :param dropout: Dropout probability
         :return: Model object
         """
 
         model = Sequential()
-        model.add(LSTM(units, activation='relu', input_shape=(self.x_train.shape[1], self.x_train.shape[2])))
+        model.add(LSTM(units, activation='relu', input_shape=(self.x_train.shape[1], self.x_train.shape[2]),
+                       dropout=dropout))
         model.add(BatchNormalization())
         model.add(Dense(1, activation='relu'))
         self.model = model
@@ -423,6 +437,8 @@ class HydroLSTM:
             metrics=list(metrics)
         )
         print(self.model.summary())
+        plot_model(self.model, to_file=self.output_dir + 'model_plot.png', show_shapes=True, show_layer_names=True,
+                   dpi=330)
 
     def learn(self, batch_size=1000, epochs=5, fold_count=10, repeats=10):
         """
@@ -435,6 +451,7 @@ class HydroLSTM:
         """
 
         kfold = RepeatedKFold(n_splits=fold_count, n_repeats=repeats, random_state=42)
+        csv_logger = CSVLogger(self.output_dir + 'LSTM_History.csv', append=True)
         for train, validation in kfold.split(self.x_train, self.y_train):
             self.model.fit(
                 x=self.x_train[train],
@@ -444,7 +461,7 @@ class HydroLSTM:
                 epochs=epochs,
                 verbose=1,
                 shuffle=True,
-                callbacks=[keras.callbacks.EarlyStopping('val_loss', patience=50)]
+                callbacks=[EarlyStopping('val_loss', patience=50), csv_logger]
             )
         test_scores = self.model.evaluate(x=self.x_test, y=self.y_test, verbose=1)
         print('Test Scores\n', test_scores)

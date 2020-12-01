@@ -234,11 +234,11 @@ def run_ml_gw():
     test_years = range(2011, 2019)
     drop_attrs = ('YEAR',)
     hydronet = HydroNet(gw_df, output_dir, random_state=42)
-    hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=True,
-                                load_data=True)
+    hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=False,
+                                load_data=False)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
     hydronet.perform_regression(use_pca_data=False, model_type='lstm', use_keras_tuner=False, validation_split=0.1,
-                                max_trials=10, max_exec_trials=10, batch_size=500, epochs=500, load_model=False,
+                                max_trials=10, max_exec_trials=1, batch_size=500, epochs=500, load_model=False,
                                 model_number=2, timesteps=1, bidirectional=False)
     hydronet.get_error_stats(inv_scaling=True)
 
