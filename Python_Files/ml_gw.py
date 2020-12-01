@@ -30,6 +30,7 @@ class HydroNet:
         self.built_model = None
         self.drop_attrs = None
         self.pred_attr = None
+        self.timesteps = 1
 
     def scale_and_split_df(self, pred_attr='GW', shuffle=False, drop_attrs=(), test_year=(2012,), test_size=0.2,
                            split_yearly=True, scaling=True, load_data=False):
@@ -150,12 +151,27 @@ class HydroNet:
                                                                  batch_size=batch_size, epochs=epochs,
                                                                  use_keras_tuner=use_keras_tuner, load_model=load_model,
                                                                  model_number=model_number)
+        elif model_type == 'lstm':
+            fold_count = kwargs.get('max_trials', 10)
+            n_repeats = kwargs.get('max_exec_trials', 3)
+            batch_size = kwargs.get('batch_size', None)
+            epochs = kwargs.get('epochs', None)
+            self.timesteps = kwargs.get('timesteps', 1)
+            bidirectional = kwargs.get('bidirectional', False)
+            self.built_model = ml_driver.perform_lstm_regression(x_train_data, x_test_data, self.y_train, self.y_test,
+                                                                 self.model_output_dir, random_state=self.random_state,
+                                                                 fold_count=fold_count, n_repeats=n_repeats,
+                                                                 batch_size=batch_size, epochs=epochs,
+                                                                 load_model=load_model, timesteps=self.timesteps,
+                                                                 bidirectional=bidirectional)
 
-    def get_error_stats(self, use_pca_data=False, inv_scaling=True):
+    def get_error_stats(self, use_pca_data=False, inv_scaling=True, model_type=None):
         """
         Get error statistics
         :param use_pca_data: Set True to use PCA transformed data
         :param inv_scaling: Set False to show error metrics based on scaled data
+        :param model_type: Set to 'lstm', 'cnn_lstm', or 'conv_lstm' to reshape training and test data accordingly
+        for model prediction
         :return: None
         """
 
@@ -164,8 +180,23 @@ class HydroNet:
         if use_pca_data:
             x_train_data = self.x_train_pca
             x_test_data = self.x_test_pca
-        pred_train = self.built_model.predict(x_train_data)
-        pred_test = self.built_model.predict(x_test_data)
+        if not model_type:
+            pred_train = self.built_model.predict(x_train_data)
+            pred_test = self.built_model.predict(x_test_data)
+        else:
+            x_train_arr = x_train_data.to_numpy()
+            x_test_arr = x_test_data.to_numpy()
+            if model_type == 'lstm':
+                x_train = x_train_arr.reshape(x_train_arr.shape[0], self.timesteps, x_train_arr.shape[1])
+                x_test = x_test_arr.reshape(x_test_arr.shape[0], self.timesteps, x_test_arr.shape[1])
+            elif model_type == 'cnn_lstm':
+                x_train = x_train_arr.reshape(x_train_arr.shape[0], 1, self.timesteps, x_train_arr.shape[1])
+                x_test = x_test_arr.reshape(x_test_arr.shape[0], 1, self.timesteps, x_test_arr.shape[1])
+            else:
+                x_train = x_train_arr.reshape(x_train_arr.shape[0], 1, 1, self.timesteps, x_train_arr.shape[1])
+                x_test = x_test_arr.reshape(x_test_arr.shape[0], 1, 1, self.timesteps, x_test_arr.shape[1])
+            pred_train = self.built_model.predict(x_train)
+            pred_test = self.built_model.predict(x_test)
         if inv_scaling:
             x_train_data[self.pred_attr] = self.y_train
             x_test_data[self.pred_attr] = self.y_test
@@ -206,9 +237,9 @@ def run_ml_gw():
     hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=True,
                                 load_data=True)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
-    hydronet.perform_regression(use_pca_data=False, model_type='kreg', use_keras_tuner=False, validation_split=0.1,
-                                max_trials=6, max_exec_trials=10, batch_size=500, epochs=500, load_model=False,
-                                model_number=2)
+    hydronet.perform_regression(use_pca_data=False, model_type='lstm', use_keras_tuner=False, validation_split=0.1,
+                                max_trials=10, max_exec_trials=10, batch_size=500, epochs=500, load_model=False,
+                                model_number=2, timesteps=1, bidirectional=False)
     hydronet.get_error_stats(inv_scaling=True)
 
 

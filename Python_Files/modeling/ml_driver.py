@@ -16,7 +16,7 @@ from sklearn.preprocessing import MinMaxScaler
 from collections import defaultdict
 from Python_Files.datalibs import rasterops as rops
 from Python_Files.modeling import model_analysis as ma
-from Python_Files.modeling.model_tuning import HydroHyperModel, HydroTuner, KerasANN
+from Python_Files.modeling.model_tuning import HydroHyperModel, HydroTuner, KerasANN, HydroLSTM
 from Python_Files.modeling.model_tuning import scikit_hypertuning, store_load_keras_model
 
 
@@ -300,7 +300,8 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
             keras_ann = KerasANN(input_features=num_features, output_features=1)
             keras_ann.ready()
             trained_model = keras_ann.learn(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data,
-                                            batch_size=batch_size, epochs=epochs, fold_count=max_exec_trial)
+                                            batch_size=batch_size, epochs=epochs, fold_count=max_trials,
+                                            repeats=max_exec_trial)
             store_load_keras_model(model=trained_model, output_file=kerasann_output_file)
     else:
         if use_keras_tuner:
@@ -313,6 +314,45 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     if use_keras_tuner:
         trained_model.evaluate(X_test_data, y_test_data)
     return trained_model
+
+
+def perform_lstm_regression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, fold_count,
+                            n_repeats=5, batch_size=500, epochs=500, random_state=0, timesteps=1, bidirectional=False,
+                            load_model=False):
+    """
+    Perform regression using LSTM
+    :param X_train_data: Training data as Pandas dataframe
+    :param X_test_data: Test data as Pandas dataframe
+    :param y_train_data: Training labels as numpy array
+    :param y_test_data:Test labels as numpy array
+    :param output_dir: Output directory to dump the best-fit model
+    :param fold_count: Maximum Keras Tuner trials
+    :param n_repeats: Maximum executions per trial for Keras Tuner
+    :param batch_size: Set a positive value. By default, batch size is auto-tuned
+    :param epochs: Set a positive value. By default, epochs is auto-tuned
+    :param random_state: PRNG seed
+    :param timesteps: Number of timesteps in LSTM
+    :param bidirectional: Set True to use Bidirectional LSTM
+    :param load_model: Set True to load existing model. Load model won't work with custom metric in TF 2.1.0
+    :return: Fitted model and prediction statistics
+    """
+
+    config = tf.compat.v1.ConfigProto(gpu_options=tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.8))
+    config.gpu_options.allow_growth = True
+    session = tf.compat.v1.Session(config=config)
+    tf.compat.v1.keras.backend.set_session(session)
+    lstm_output_file = output_dir + 'LSTM.tf'
+    if not load_model:
+        np.random.seed(random_state)
+        lstm = HydroLSTM(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data,
+                         timesteps=timesteps)
+        lstm.stacked_lstm(bidirectional=bidirectional)
+        lstm.ready()
+        lstm_model = lstm.learn(batch_size=batch_size, epochs=epochs, fold_count=fold_count, repeats=n_repeats)
+        store_load_keras_model(lstm_output_file, lstm_model)
+    else:
+        lstm_model = store_load_keras_model(lstm_output_file)
+    return lstm_model
 
 
 def perform_linearregression(X_train_data, X_test_data, y_train_data, y_test_data):

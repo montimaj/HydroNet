@@ -6,7 +6,8 @@ import tensorflow as tf
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import RepeatedKFold
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Activation, Dense, Dropout, BatchNormalization
+from tensorflow.keras.layers import Input, Activation, Dense, Dropout, BatchNormalization, LSTM, ConvLSTM2D, Conv1D
+from tensorflow.keras.layers import Bidirectional, TimeDistributed, MaxPooling1D, Flatten
 from tensorflow.keras.models import Sequential
 from kerastuner.tuners import RandomSearch
 from kerastuner import HyperModel
@@ -231,7 +232,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-4, epsilon=1e-9),
+            'adam': keras.optimizers.Adam(learning_rate=1e-4, epsilon=1e-7),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
@@ -247,7 +248,7 @@ class KerasANN:
         print(self._model.summary())
         self._is_ready = True
 
-    def learn(self, x_train, x_test, y_train, y_test, batch_size=1000, epochs=5, fold_count=10):
+    def learn(self, x_train, x_test, y_train, y_test, batch_size=1000, epochs=5, fold_count=10, repeats=10):
         """
         Call this to build model
         :param x_train: Training data as numpy array
@@ -257,11 +258,12 @@ class KerasANN:
         :param batch_size: Batch size
         :param epochs: Epochs
         :param fold_count: Number of cross-validation folds
+        :param repeats: KFold repeats
         :return: Trained model object
         """
 
         assert self._is_ready
-        kfold = RepeatedKFold(n_splits=fold_count, random_state=42)
+        kfold = RepeatedKFold(n_splits=fold_count, n_repeats=repeats, random_state=42)
         for train, validation in kfold.split(x_train, y_train):
             self._model.fit(
                 x=x_train[train],
@@ -276,6 +278,176 @@ class KerasANN:
         print('Test Scores\n', test_scores)
         self._is_trained = True
         return self._model
+
+
+class HydroLSTM:
+    def __init__(self, x_train, x_test, y_train, y_test, timesteps=1):
+        """
+        Constructor for class
+        :param x_train: Training data as numpy array
+        :param x_test: Test data as numpy array
+        :param y_train: Training labels as numpy array
+        :param y_test: Test labels as numpy array
+        :param timesteps: Number of timesteps
+        """
+
+        self.x_train = x_train.reshape(x_train.shape[0], timesteps, x_train.shape[1])
+        self.x_test = x_test.reshape(x_test.shape[0], timesteps, x_test.shape[1])
+        self.x_train_cnn_lstm = x_train.reshape(x_train.shape[0], 1, timesteps, x_train.shape[1])
+        self.x_test_cnn_lstm = x_test.reshape(x_test.shape[0], 1, timesteps, x_test.shape[1])
+        self.x_train_conv_lstm = x_train.reshape(x_train.shape[0], 1, 1, timesteps, x_train.shape[1])
+        self.x_test_conv_lstm = x_test.reshape(x_test.shape[0], 1, 1, timesteps, x_test.shape[1])
+        self.y_train = y_train
+        self.y_test = y_test
+        self.timesteps = timesteps
+        self.n_seq = 1
+        self.model = None
+
+    def vanilla_lstm(self, units=50):
+        """
+        Implements vanilla LSTM
+        :param units: Number of units in LSTM
+        :return: Model object
+        """
+
+        model = Sequential()
+        model.add(LSTM(units, activation='relu', input_shape=(self.x_train[1], self.x_train[2])))
+        model.add(BatchNormalization())
+        model.add(Dense(1, activation='relu'))
+        self.model = model
+        return model
+
+    def stacked_lstm(self, units=(256, 128, 128, 128, 128, 256), dropout=0.01, bidirectional=False):
+        """
+        Implements stacked LSTM
+        :param units: Tuple of units in the LSTM, tuple length indicates the total number of stacks used
+        :param dropout: Dropout probability
+        :param bidirectional: Set True to use bidrectional LSTM
+        :return: Model object
+        """
+
+        model = Sequential()
+        if not bidirectional:
+            model.add(LSTM(units[0], activation='relu', return_sequences=True, dropout=dropout,
+                           input_shape=(self.x_train.shape[1], self.x_train.shape[2])))
+        else:
+            model.add(Bidirectional(LSTM(units[0], activation='relu', dropout=dropout, return_sequences=True),
+                                    input_shape=(self.x_train.shape[1], self.x_train.shape[2])))
+        for unit in units[1:-1]:
+            model.add(BatchNormalization())
+            lstm = LSTM(unit, activation='relu', return_sequences=True, dropout=dropout)
+            if not bidirectional:
+                model.add(lstm)
+            else:
+                model.add(Bidirectional(lstm))
+        model.add(BatchNormalization())
+        lstm = LSTM(units[-1], activation='relu', dropout=dropout)
+        if not bidirectional:
+            model.add(lstm)
+        else:
+            model.add(Bidirectional(lstm))
+        model.add(BatchNormalization())
+        model.add(Dense(1, activation='relu'))
+        self.model = model
+        return model
+
+    def cnn_lstm(self, filters=64, kernel_size=1, units=(50, 50, 50, 50, 50), dropout=0.01, bidirectional=False):
+        """
+        Implements CNN LSTM
+        :param filters: Number of Conv1D filters
+        :param kernel_size: 1D kernel size for Conv1D
+        :param units: Tuple of units in the LSTM, tuple length indicates the total number of stacks used
+        :param dropout: Dropout probability
+        :param bidirectional: Set True to use bidrectional LSTM
+        :return: Model object
+        """
+
+        model = Sequential()
+        model.add(TimeDistributed(Conv1D(filters=filters, kernel_size=kernel_size, activation='relu'),
+                                  input_shape=(None, self.timesteps, self.x_train_cnn_lstm.shape[-1])))
+        model.add(TimeDistributed(MaxPooling1D(pool_size=2)))
+        model.add(TimeDistributed(Flatten()))
+        model.add(BatchNormalization())
+        model.add(self.stacked_lstm(units, dropout, bidirectional))
+        self.x_train = self.x_train_cnn_lstm
+        self.x_test = self.x_test_cnn_lstm
+        self.model = model
+        return model
+
+    def conv_lstm(self, filters=64, kernel_size=(1, 2)):
+        """
+        Implements ConvLSTM
+        :param filters: Number of Conv2D filters
+        :param kernel_size: 2D kernel size for Conv2D
+        :return: Model object
+        """
+
+        model = Sequential()
+        model.add(
+            ConvLSTM2D(
+                filters=filters,
+                kernel_size=kernel_size,
+                activation='relu',
+                input_shape=(self.n_seq, 1, self.timesteps, self.x_train_conv_lstm.shape[-1])
+            )
+        )
+        model.add(Flatten())
+        model.add(BatchNormalization())
+        model.add(Dense(1, activation='relu'))
+        self.x_train = self.x_train_conv_lstm
+        self.x_test = self.x_test_conv_lstm
+        self.model = model
+        return model
+
+    def ready(self, optimizer='adam', loss='huber_loss', metrics=('mse', 'mae', r2)):
+        """
+        Compiles model object
+        :param optimizer: Keras optimizer function
+        :param loss: Keras loss function
+        :param metrics: Keras metric
+        :return: None
+        """
+
+        optimizer_dict = {
+            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-7),
+            'sgd': keras.optimizers.SGD(momentum=0.3),
+            'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
+            'adagrad': keras.optimizers.Adagrad(),
+            'adadelta': keras.optimizers.Adadelta(),
+            'nadam': keras.optimizers.Nadam()
+        }
+
+        self.model.compile(
+            optimizer=optimizer_dict[optimizer],
+            loss=loss,
+            metrics=list(metrics)
+        )
+        print(self.model.summary())
+
+    def learn(self, batch_size=1000, epochs=5, fold_count=10, repeats=10):
+        """
+        Call this to build model
+        :param batch_size: Batch size
+        :param epochs: Epochs
+        :param fold_count: Number of cross-validation folds
+        :param repeats: KFold repeats
+        :return: Trained model object
+        """
+
+        kfold = RepeatedKFold(n_splits=fold_count, n_repeats=repeats, random_state=42)
+        for train, validation in kfold.split(self.x_train, self.y_train):
+            self.model.fit(
+                x=self.x_train[train],
+                y=self.y_train[train],
+                validation_data=(self.x_train[validation], self.y_train[validation]),
+                batch_size=batch_size,
+                epochs=epochs,
+                verbose=1,
+                callbacks=[keras.callbacks.EarlyStopping('val_loss', patience=50)]
+            )
+        test_scores = self.model.evaluate(x=self.x_test, y=self.y_test, verbose=1)
+        print('Test Scores\n', test_scores)
+        return self.model
 
 
 def store_load_keras_model(output_file, model=None):
