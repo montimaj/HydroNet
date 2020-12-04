@@ -1,7 +1,6 @@
 # Author: Sayantan Majumdar
 # Email: smxnv@mst.edu
 
-import numpy as np
 from Python_Files.modeling import gw_driver, ml_driver, pca_reduce
 from Python_Files.modeling import model_analysis as ma
 from Python_Files.datalibs.sysops import make_proper_dir_name, makedirs
@@ -30,6 +29,9 @@ class HydroNet:
         self.built_model = None
         self.drop_attrs = None
         self.pred_attr = None
+        self.x_scaler = None
+        self.y_scaler = None
+        self.scaling = True
         self.timesteps = 1
 
     def scale_and_split_df(self, pred_attr='GW', shuffle=False, drop_attrs=(), test_year=(2012,), test_size=0.2,
@@ -53,23 +55,18 @@ class HydroNet:
         self.pred_attr = pred_attr
         if not load_data:
             makedirs([self.train_test_out_dir])
+        self.x_train, self.y_train, self.x_test, self.y_test = ml_driver.split_data(
+            self.input_df, self.train_test_out_dir, pred_attr=pred_attr,
+            shuffle=shuffle, drop_attrs=drop_attrs, test_year=test_year,
+            test_size=test_size, split_yearly=split_yearly,
+            random_state=self.random_state, load_data=load_data
+        )
+        self.scaling = scaling
         if scaling:
-            self.scaled_df, self.scaler = ml_driver.scale_df(self.input_df, self.train_test_out_dir,
-                                                             load_data=load_data)
-            test_year = [ty.ravel()[-1] for ty in
-                                [self.scaler.transform(np.array([[ty] * self.scaled_df.shape[1]])) for ty in test_year]]
-        else:
-            self.scaled_df = self.input_df
-        self.x_train, self.x_test, self.y_train, self.y_test = ml_driver.split_data(self.scaled_df,
-                                                                                    self.train_test_out_dir,
-                                                                                    pred_attr=pred_attr,
-                                                                                    shuffle=shuffle,
-                                                                                    drop_attrs=drop_attrs,
-                                                                                    test_year=test_year,
-                                                                                    test_size=test_size,
-                                                                                    split_yearly=split_yearly,
-                                                                                    random_state=self.random_state,
-                                                                                    load_data=load_data)
+            self.x_scaler, self.y_scaler, self.x_train, self.y_train, self.x_test, self.y_test = ml_driver.scale_df(
+                self.x_train, self.y_train, self.x_test,
+                self.y_test, self.train_test_out_dir, load_data=load_data
+            )
 
     def perform_pca(self, kpca_type='poly', gamma=10., degree=3, n_components=5, n_samples=1000,
                     already_transformed=False):
@@ -157,19 +154,18 @@ class HydroNet:
             batch_size = kwargs.get('batch_size', None)
             epochs = kwargs.get('epochs', None)
             self.timesteps = kwargs.get('timesteps', 1)
-            bidirectional = kwargs.get('bidirectional', False)
+            bidirectional = kwargs.get('bidirectional', None)
             self.built_model = ml_driver.perform_lstm_regression(x_train_data, x_test_data, self.y_train, self.y_test,
                                                                  self.model_output_dir, random_state=self.random_state,
                                                                  fold_count=fold_count, n_repeats=n_repeats,
                                                                  batch_size=batch_size, epochs=epochs,
-                                                                 load_model=load_model, timesteps=self.timesteps,
+                                                                 timesteps=self.timesteps,
                                                                  bidirectional=bidirectional)
 
-    def get_error_stats(self, use_pca_data=False, inv_scaling=True, model_type=None):
+    def get_error_stats(self, use_pca_data=False, model_type=None):
         """
         Get error statistics
         :param use_pca_data: Set True to use PCA transformed data
-        :param inv_scaling: Set False to show error metrics based on scaled data
         :param model_type: Set to 'lstm', 'cnn_lstm', or 'conv_lstm' to reshape training and test data accordingly
         for model prediction
         :return: None
@@ -197,25 +193,11 @@ class HydroNet:
                 x_test = x_test_arr.reshape(x_test_arr.shape[0], 1, 1, self.timesteps, x_test_arr.shape[1])
             pred_train = self.built_model.predict(x_train)
             pred_test = self.built_model.predict(x_test)
-        if inv_scaling:
-            x_train_data[self.pred_attr] = self.y_train
-            x_test_data[self.pred_attr] = self.y_test
-            for drop_attr in self.drop_attrs:
-                x_train_data[drop_attr] = self.y_train
-                x_test_data[drop_attr] = self.y_test
-            x_train_data = ml_driver.reindex_df(x_train_data)
-            x_test_data = ml_driver.reindex_df(x_test_data)
-            x_train_data[x_train_data.columns] = self.scaler.inverse_transform(x_train_data[x_train_data.columns])
-            x_test_data[x_test_data.columns] = self.scaler.inverse_transform(x_test_data[x_test_data.columns])
-            self.y_train = x_train_data[self.pred_attr].to_numpy().copy().ravel()
-            self.y_test = x_test_data[self.pred_attr].to_numpy().copy().ravel()
-            x_train_data[self.pred_attr] = pred_train
-            x_test_data[self.pred_attr] = pred_test
-            x_train_data[x_train_data.columns] = self.scaler.inverse_transform(x_train_data)
-            x_test_data[x_test_data.columns] = self.scaler.inverse_transform(x_test_data)
-            pred_train = x_train_data[self.pred_attr].to_numpy().ravel()
-            pred_test = x_test_data[self.pred_attr].to_numpy().ravel()
-
+        if self.scaling:
+            self.y_train = self.y_scaler.inverse_transform(self.y_train.reshape(-1, 1)).ravel()
+            pred_train = self.y_scaler.inverse_transform(pred_train.reshape(-1, 1)).ravel()
+            self.y_test = self.y_scaler.inverse_transform(self.y_test.reshape(-1, 1)).ravel()
+            pred_test = self.y_scaler.inverse_transform(pred_test.reshape(-1, 1)).ravel()
         ma.generate_scatter_plot(self.y_test, pred_test)
         ma.generate_scatter_plot(self.y_train, pred_train)
         test_stats = ma.get_error_stats(self.y_test, pred_test)
@@ -234,13 +216,13 @@ def run_ml_gw():
     test_years = range(2011, 2019)
     drop_attrs = ('YEAR',)
     hydronet = HydroNet(gw_df, output_dir, random_state=42)
-    hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=False,
-                                load_data=False)
+    hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=True,
+                                load_data=True)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
-    hydronet.perform_regression(use_pca_data=False, model_type='lstm', use_keras_tuner=False, validation_split=0.1,
-                                max_trials=10, max_exec_trials=1, batch_size=500, epochs=500, load_model=False,
-                                model_number=2, timesteps=1, bidirectional=False)
-    hydronet.get_error_stats(inv_scaling=True)
+    hydronet.perform_regression(use_pca_data=False, model_type='kreg', use_keras_tuner=False, validation_split=0.1,
+                                max_trials=10, max_exec_trials=3, batch_size=512, epochs=1000, load_model=False,
+                                model_number=2, timesteps=1, bidirectional=None)
+    hydronet.get_error_stats()
 
 
 run_ml_gw()

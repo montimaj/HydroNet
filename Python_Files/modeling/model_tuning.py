@@ -14,7 +14,7 @@ from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
 from kerastuner.tuners import RandomSearch
 from kerastuner import HyperModel
 from tensorflow import keras
-from Python_Files.datalibs.sysops import make_proper_dir_name, makedirs
+from Python_Files.datalibs.sysops import make_proper_dir_name, makedirs, deletedirs
 
 
 def r2(y_true, y_pred):
@@ -190,13 +190,8 @@ class HydroTuner(RandomSearch):
 
 
 class KerasANN:
-    """
-    This class has been reproduced from https://github.com/cryptomare/RadarBackscatterModel
-    Original authors: Abhisek Maiti, Shashwat Shukla
-    Modifier: Sayantan Majumdar
-    """
-    def __init__(self, output_dir, input_features=6, hidden_units=(256, 128, 128, 128, 128, 256),
-                 output_features=1, dropout=0.1):
+    def __init__(self, output_dir, input_features=6, hidden_units=(2048, 1024, 512, 256, 128, 64, 32),
+                 output_features=1, dropout=0.01):
         """
         Constructor for KerasANN
         :param output_dir: Output directory for storing plots and history
@@ -224,11 +219,12 @@ class KerasANN:
         self._input_features = input_features
         self._output_features = output_features
         self._output_dir = make_proper_dir_name(output_dir + 'KerasANN_History')
+        deletedirs([self._output_dir])
         makedirs([self._output_dir])
         self._is_ready = False
         self._is_trained = False
 
-    def ready(self, optimizer='adam', loss='huber_loss', metrics=('mse', 'mae')):
+    def ready(self, optimizer='adam', loss='huber_loss', metrics=('mse', 'mae', r2)):
         """
         Compiles model object
         :param optimizer: Keras optimizer function
@@ -238,7 +234,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-4, epsilon=1e-9),
+            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-7),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
@@ -310,6 +306,7 @@ class HydroLSTM:
         self.y_train = y_train
         self.y_test = y_test
         self.output_dir = make_proper_dir_name(output_dir + 'LSTM_History')
+        deletedirs([self.output_dir])
         makedirs([self.output_dir])
         self.timesteps = timesteps
         self.n_seq = 1
@@ -331,7 +328,30 @@ class HydroLSTM:
         self.model = model
         return model
 
-    def stacked_lstm(self, units=(64, 64, 64, 64, 64), dropout=0.01, bidirectional=False):
+    def vanilla_lstm_ann(self, lstm_units=50, hidden_units=(256, 128, 128, 128, 128, 256), dropout=0.1):
+        """
+        Implements vanilla LSTM
+        :param lstm_units: Number of units in LSTM
+        :param hidden_units: Number of units in KerasANN
+        :param dropout: Dropout probability
+        :return: Model object
+        """
+
+        model = Sequential()
+        model.add(LSTM(lstm_units, activation='relu', input_shape=(self.x_train.shape[1], self.x_train.shape[2]),
+                       dropout=dropout))
+        model.add(BatchNormalization())
+        model.add(Dense(units=1, activation='relu'))
+        for unit in hidden_units:
+            model.add(BatchNormalization())
+            model.add(Dense(units=unit, activation='relu'))
+            model.add(Dropout(dropout))
+        model.add(BatchNormalization())
+        model.add(Dense(units=1, activation='relu'))
+        self.model = model
+        return model
+
+    def stacked_lstm(self, units=(1024, 1024), dropout=0.01, bidirectional=False):
         """
         Implements stacked LSTM
         :param units: Tuple of units in the LSTM, tuple length indicates the total number of stacks used
@@ -423,7 +443,7 @@ class HydroLSTM:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-4),
+            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-7),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),

@@ -2,7 +2,7 @@
 # Email: smxnv@mst.edu
 
 import os
-from shutil import copy2
+from shutil import copy2, rmtree
 from glob import glob
 
 
@@ -37,6 +37,19 @@ def makedirs(directory_list):
         if directory_name is not None:
             if not os.path.exists(directory_name):
                 os.makedirs(directory_name)
+
+
+def deletedirs(directory_list):
+    """
+    Create directory for storing files
+    :param directory_list: List of directories to create
+    :return: None
+    """
+
+    for directory_name in directory_list:
+        if directory_name is not None:
+            if os.path.exists(directory_name):
+                rmtree(directory_name)
 
 
 def make_proper_dir_name(dir_str):

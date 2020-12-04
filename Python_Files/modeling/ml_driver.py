@@ -108,7 +108,7 @@ def split_data_train_test(input_df, pred_attr='GW', shuffle=True, random_state=0
     :param outdir: Set path to store intermediate files
     :param drop_attrs: Drop these specified attributes
     :param test_year: Build test data from only this year
-    :return: X_train, X_test, y_train, y_test
+    :return: X_train, y_train, X_test, y_test
     """
 
     years = set(input_df['YEAR'])
@@ -138,7 +138,7 @@ def split_data_train_test(input_df, pred_attr='GW', shuffle=True, random_state=0
         y_train_df.to_csv(outdir + 'Y_Train.csv', index=False)
         y_test_df.to_csv(outdir + 'Y_Test.csv', index=False)
 
-    return x_train_df, x_test_df, y_train_df[0].ravel(), y_test_df[0].ravel()
+    return x_train_df, y_train_df, x_test_df, y_test_df
 
 
 def split_yearly_data(input_df, pred_attr='GW', outdir=None, drop_attrs=(), test_years=(2016,), shuffle=True,
@@ -152,7 +152,7 @@ def split_yearly_data(input_df, pred_attr='GW', outdir=None, drop_attrs=(), test
     :param test_years: Build test data from only these years
     :param shuffle: Set False to stop data shuffling
     :param random_state: Seed for PRNG
-    :return: X_train, X_test, y_train, y_test
+    :return: X_train, y_train, X_test, y_test
     """
 
     years = set(input_df['YEAR'])
@@ -184,29 +184,45 @@ def split_yearly_data(input_df, pred_attr='GW', outdir=None, drop_attrs=(), test
         y_train_df.to_csv(outdir + 'Y_Train.csv', index=False)
         y_test_df.to_csv(outdir + 'Y_Test.csv', index=False)
 
-    return x_train_df, x_test_df, y_train_df.to_numpy().ravel(), y_test_df.to_numpy().ravel()
+    return x_train_df, y_train_df, x_test_df, y_test_df
 
 
-def scale_df(input_df, output_dir, load_data=False):
+def scale_df(x_train, y_train, x_test, y_test, output_dir, load_data=False):
     """
     Scale dataframe columns
-    :param input_df: Input Pandas dataframe
-    :param output_dir: Output directory to store scaled df and object
+    :param x_train: X_train DF
+    :param y_train: Y_train DF
+    :param x_test: X_test DF
+    :param y_test: Y_test DF
+    :param output_dir: Output directory to store scaled df and scaler object
     :param load_data: Set True to load existing df and scaler object
-    :return: Scaled scaled df and scaler object as tuples
+    :return: x_scaler, y_scaler objects and x_train DF, y_train numpy array, x_test DF, y_test numpy array as tuples
     """
 
-    scaled_csv = output_dir + 'Scaled_DF.csv'
-    scaler_obj_file = output_dir + 'Scaler_Obj'
+    x_train_csv = output_dir + 'Scaled_X_Train.csv'
+    y_train_csv = output_dir + 'Scaled_Y_Train.csv'
+    x_test_csv = output_dir + 'Scaled_X_Test.csv'
+    y_test_csv = output_dir + 'Scaled_Y_Test.csv'
+    x_scaler_file, y_scaler_file = output_dir + 'Scaler_X', output_dir + 'Scaler_Y'
     if load_data:
-        scaled_df, scaler = pd.read_csv(scaled_csv), pickle.load(open(scaler_obj_file, mode='rb'))
+        x_train = pd.read_csv(x_train_csv)
+        y_train = pd.read_csv(y_train_csv)
+        x_test = pd.read_csv(x_test_csv)
+        y_test = pd.read_csv(y_test_csv)
+        x_scaler, y_scaler = pickle.load(open(x_scaler_file, mode='rb')), pickle.load(open(y_scaler_file, mode='rb'))
     else:
-        scaler = MinMaxScaler()
-        scaled_df = input_df.copy()
-        scaled_df[scaled_df.columns] = scaler.fit_transform(input_df[input_df.columns])
-        scaled_df.to_csv(scaled_csv, index=False)
-        pickle.dump(scaler, open(scaler_obj_file, mode='wb'))
-    return scaled_df, scaler
+        x_scaler, y_scaler = MinMaxScaler(), MinMaxScaler()
+        x_train[x_train.columns] = x_scaler.fit_transform(x_train[x_train.columns])
+        x_test[x_test.columns] = x_scaler.transform(x_test)
+        y_train[y_train.columns] = y_scaler.fit_transform(y_train[y_train.columns])
+        y_test[y_test.columns] = y_scaler.transform(y_test)
+        x_train.to_csv(x_train_csv, index=False)
+        y_train.to_csv(y_train_csv, index=False)
+        x_test.to_csv(x_test_csv, index=False)
+        y_test.to_csv(y_test_csv, index=False)
+        pickle.dump(x_scaler, open(x_scaler_file, mode='wb'))
+        pickle.dump(y_scaler, open(y_scaler_file, mode='wb'))
+    return x_scaler, y_scaler, x_train, y_train.to_numpy().ravel(), x_test, y_test.to_numpy().ravel()
 
 
 def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(), test_year=(2012,), test_size=0.2,
@@ -317,8 +333,7 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
 
 
 def perform_lstm_regression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, fold_count,
-                            n_repeats=5, batch_size=500, epochs=500, random_state=0, timesteps=1, bidirectional=False,
-                            load_model=False):
+                            n_repeats=5, batch_size=500, epochs=500, random_state=0, timesteps=1, bidirectional=None):
     """
     Perform regression using LSTM
     :param X_train_data: Training data as Pandas dataframe
@@ -332,8 +347,7 @@ def perform_lstm_regression(X_train_data, X_test_data, y_train_data, y_test_data
     :param epochs: Set a positive value. By default, epochs is auto-tuned
     :param random_state: PRNG seed
     :param timesteps: Number of timesteps in LSTM
-    :param bidirectional: Set True to use Bidirectional LSTM
-    :param load_model: Set True to load existing model. Load model won't work with custom metric in TF 2.1.0
+    :param bidirectional: Set True to use Bidirectional LSTM, False to use Stacked LSTM, and None to use vanilla LSTM
     :return: Fitted model and prediction statistics
     """
 
@@ -341,18 +355,15 @@ def perform_lstm_regression(X_train_data, X_test_data, y_train_data, y_test_data
     config.gpu_options.allow_growth = True
     session = tf.compat.v1.Session(config=config)
     tf.compat.v1.keras.backend.set_session(session)
-    lstm_output_file = output_dir + 'LSTM.tf'
-    if not load_model:
-        np.random.seed(random_state)
-        lstm = HydroLSTM(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data, output_dir,
-                         timesteps=timesteps)
-        # lstm.stacked_lstm(bidirectional=bidirectional)
-        lstm.vanilla_lstm()
-        lstm.ready()
-        lstm_model = lstm.learn(batch_size=batch_size, epochs=epochs, fold_count=fold_count, repeats=n_repeats)
-        store_load_keras_model(lstm_output_file, lstm_model)
+    np.random.seed(random_state)
+    lstm = HydroLSTM(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data, output_dir,
+                     timesteps=timesteps)
+    if bidirectional is not None:
+        lstm.stacked_lstm(bidirectional=bidirectional)
     else:
-        lstm_model = store_load_keras_model(lstm_output_file)
+        lstm.vanilla_lstm_ann()
+    lstm.ready()
+    lstm_model = lstm.learn(batch_size=batch_size, epochs=epochs, fold_count=fold_count, repeats=n_repeats)
     return lstm_model
 
 
