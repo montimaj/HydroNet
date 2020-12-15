@@ -3,8 +3,11 @@
 
 import tensorflow.keras.backend as kb
 import tensorflow as tf
+import numpy as np
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import RepeatedKFold
+from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
+from xgboost import XGBRegressor
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Activation, Dense, Dropout, BatchNormalization, LSTM, ConvLSTM2D, Conv1D
 from tensorflow.keras.layers import Bidirectional, TimeDistributed, MaxPooling1D, Flatten
@@ -190,7 +193,13 @@ class HydroTuner(RandomSearch):
 
 
 class KerasANN:
-    def __init__(self, output_dir, input_features=6, hidden_units=(2048, 1024, 512, 256, 128, 64, 32),
+    """
+    This class has been reproduced from https://github.com/cryptomare/RadarBackscatterModel
+    Original authors: Abhisek Maiti, Shashwat Shukla
+    Modifier: Sayantan Majumdar
+    """
+
+    def __init__(self, output_dir, input_features=6, hidden_units=(2048, 1024, 512, 256, 128, 64, 32, 16),
                  output_features=1, dropout=0.01):
         """
         Constructor for KerasANN
@@ -218,13 +227,13 @@ class KerasANN:
         self._model = Model(input_layer, output_layer)
         self._input_features = input_features
         self._output_features = output_features
-        self._output_dir = make_proper_dir_name(output_dir + 'KerasANN_History')
+        self._output_dir = make_proper_dir_name(output_dir + 'KerasANN_History1')
         deletedirs([self._output_dir])
         makedirs([self._output_dir])
         self._is_ready = False
         self._is_trained = False
 
-    def ready(self, optimizer='adam', loss='huber_loss', metrics=('mse', 'mae', r2)):
+    def ready(self, optimizer='adam', loss='mse', metrics=('mse', 'mae')):
         """
         Compiles model object
         :param optimizer: Keras optimizer function
@@ -234,7 +243,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-7),
+            'adam': keras.optimizers.Adam(learning_rate=1e-4, epsilon=1e-7),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
@@ -277,11 +286,50 @@ class KerasANN:
                 batch_size=batch_size,
                 epochs=epochs,
                 verbose=1,
-                callbacks=[EarlyStopping('val_loss', patience=50), csv_logger]
+                callbacks=[EarlyStopping('val_loss', patience=10), csv_logger]
             )
         test_scores = self._model.evaluate(x=x_test, y=y_test, verbose=1)
         print('Test Scores\n', test_scores)
         self._is_trained = True
+        return self._model
+
+
+class TreeML:
+
+    def __init__(self, output_dir, ml_model='RF'):
+        """
+        Constructor for KerasANN
+        :param output_dir: Output directory for storing plots and history
+        :param ml_model: Set ML model, models include 'RF', 'ETR', 'XGB'
+        """
+
+        self._output_dir = make_proper_dir_name(output_dir + 'TreeML_History/' + ml_model)
+        deletedirs([self._output_dir])
+        makedirs([self._output_dir])
+        print('Performing', ml_model)
+        if ml_model == 'RF':
+            self._model = RandomForestRegressor(n_estimators=500, n_jobs=-2, random_state=0)
+        elif ml_model == 'ETR':
+            self._model = ExtraTreesRegressor(n_estimators=500, n_jobs=-2, random_state=0, bootstrap=True)
+        else:
+            self._model = XGBRegressor(n_estimators=20000, n_jobs=-2, eta=1e-3, random_state=0,
+                                       objective='reg:squarederror', tree_method='hist', grow_policy='lossguide',
+                                       rate_drop=0.01)
+
+    def learn(self, x_train, x_test, y_train, y_test):
+        """
+        Call this to build model
+        :param x_train: Training data as numpy array
+        :param x_test: Test data as numpy array
+        :param y_train: Training labels as numpy array
+        :param y_test: Test labels as numpy array
+        :return: Trained model object
+        """
+
+        self._model.fit(x_train, y_train)
+        train_score = np.round(self._model.score(x_train, y_train), 2)
+        test_score = np.round(self._model.score(x_test, y_test), 2)
+        print(train_score, test_score)
         return self._model
 
 

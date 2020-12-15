@@ -162,6 +162,10 @@ class HydroNet:
                                                                  timesteps=self.timesteps,
                                                                  bidirectional=bidirectional)
 
+        else:
+            self.built_model = ml_driver.perform_ml_regression(x_train_data, x_test_data, self.y_train, self.y_test,
+                                                               output_dir=self.model_output_dir, ml_model=model_type)
+
     def get_error_stats(self, use_pca_data=False, model_type=None):
         """
         Get error statistics
@@ -213,14 +217,14 @@ def run_ml_gw():
 
     gw_df = gw_driver.create_ml_data(load_df=True)
     output_dir = r'..\Outputs\All_Data'
-    test_years = range(2011, 2019)
+    test_years = range(2016, 2019)
     drop_attrs = ('YEAR',)
     hydronet = HydroNet(gw_df, output_dir, random_state=42)
     hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=True,
                                 load_data=True)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
     hydronet.perform_regression(use_pca_data=False, model_type='kreg', use_keras_tuner=False, validation_split=0.1,
-                                max_trials=10, max_exec_trials=3, batch_size=512, epochs=1000, load_model=False,
+                                max_trials=10, max_exec_trials=1, batch_size=512, epochs=200, load_model=False,
                                 model_number=2, timesteps=1, bidirectional=None)
     hydronet.get_error_stats()
 

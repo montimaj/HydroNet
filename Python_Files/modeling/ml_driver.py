@@ -16,7 +16,7 @@ from sklearn.preprocessing import MinMaxScaler
 from collections import defaultdict
 from Python_Files.datalibs import rasterops as rops
 from Python_Files.modeling import model_analysis as ma
-from Python_Files.modeling.model_tuning import HydroHyperModel, HydroTuner, KerasANN, HydroLSTM
+from Python_Files.modeling.model_tuning import HydroHyperModel, HydroTuner, KerasANN, HydroLSTM, TreeML
 from Python_Files.modeling.model_tuning import scikit_hypertuning, store_load_keras_model
 
 
@@ -283,12 +283,12 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     :return: Fitted model and prediction statistics
     """
 
-    config = tf.compat.v1.ConfigProto(gpu_options=tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.8))
+    config = tf.compat.v1.ConfigProto(gpu_options=tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.99))
     config.gpu_options.allow_growth = True
     session = tf.compat.v1.Session(config=config)
     tf.compat.v1.keras.backend.set_session(session)
     kerastuner_output_file = output_dir + 'KerasTunerANN.tf'
-    kerasann_output_file = output_dir + 'KerasANN.tf'
+    kerasann_output_file = output_dir + 'KerasANN1.tf'
     if not load_model:
         num_features = X_train_data.shape[1]
         if use_keras_tuner:
@@ -382,6 +382,23 @@ def perform_linearregression(X_train_data, X_test_data, y_train_data, y_test_dat
     pred_stats = ma.get_error_stats(y_test_data, pred)
     print('Linear regression:', pred_stats)
     return lreg
+
+
+def perform_ml_regression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, ml_model='RF'):
+    """
+    Perform regression using Random Forests, ExtraTrees, or XGBoost
+    :param X_train_data: Training data as Pandas dataframe
+    :param X_test_data: Test data as Pandas dataframe
+    :param y_train_data: Training labels as numpy array
+    :param y_test_data:Test labels as numpy array
+    :param output_dir: Output directory to dump the best-fit model
+    :param ml_model: Set ML model, models include 'RF', 'ETR', 'XGB'
+    :return: Fitted model object
+    """
+
+    tree_ml = TreeML(output_dir, ml_model)
+    model = tree_ml.learn(X_train_data, X_test_data, y_train_data, y_test_data)
+    return model
 
 
 def perform_mlpregression(X_train_data, y_train_data, output_dir, cv=10, grid_iter=10,
