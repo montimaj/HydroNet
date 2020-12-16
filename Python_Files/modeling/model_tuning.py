@@ -220,16 +220,16 @@ class KerasANN:
         python_random.seed(random_state)
         tf.random.set_seed(random_state)
         input_layer = Input(shape=(input_features,), name='input_layer',)
-        hidden_layer = Dense(units=hidden_units[0], kernel_initializer='he_uniform')(input_layer)
+        hidden_layer = Dense(units=hidden_units[0], kernel_initializer='he_normal')(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = Activation('relu')(hidden_layer)
+        hidden_layer = PReLU()(hidden_layer)
         hidden_layer = Dropout(dropout)(hidden_layer)
         for unit in hidden_units[1:]:
-            hidden_layer = Dense(units=unit, kernel_initializer='he_uniform')(hidden_layer)
+            hidden_layer = Dense(units=unit, kernel_initializer='he_normal')(hidden_layer)
             hidden_layer = BatchNormalization()(hidden_layer)
-            hidden_layer = Activation('relu')(hidden_layer)
+            hidden_layer = PReLU()(hidden_layer)
             hidden_layer = Dropout(dropout)(hidden_layer)
-        output_layer = Dense(units=output_features, kernel_initializer='he_uniform')(hidden_layer)
+        output_layer = Dense(units=output_features, kernel_initializer='he_normal')(hidden_layer)
         output_layer = BatchNormalization()(output_layer)
         output_layer = Activation('relu')(output_layer)
         self._model = Model(input_layer, output_layer)
@@ -254,7 +254,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-6),
+            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-5),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
@@ -297,7 +297,7 @@ class KerasANN:
                 batch_size=batch_size,
                 epochs=epochs,
                 verbose=1,
-                callbacks=[EarlyStopping('val_loss', patience=10), csv_logger]
+                callbacks=[EarlyStopping('val_loss', patience=50), csv_logger]
             )
         test_scores = self._model.evaluate(x=x_test, y=y_test, verbose=1)
         print('Test Scores\n', test_scores)

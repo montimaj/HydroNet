@@ -167,22 +167,29 @@ def create_time_series_plot(input_df_list):
     plt.show()
 
 
-def create_time_series_forecast_plot(input_df_list, forecast_years=(2019, ), plot_title=''):
+def create_time_series_forecast_plot(input_df_list, forecast_years=(2019, ), plot_title='', ty_start=2016, ty_end=2018,
+                                     plot_grace=True):
     """
     Create time series plot
     :param input_df_list: Input data frames as constructed from #create_gw_time_series
     :param forecast_years: The line color changes for these years
     :param plot_title: Plot title
+    :param ty_start: Test year start
+    :param ty_end: Test year end
+    :param plot_grace: Set False to disable plotting GRACE data
     :return: None
     """
 
-    df1, df2 = input_df_list
-    fig, (ax1, ax2) = plt.subplots(2, 1)
+    df1 = input_df_list
+    ax2, df2 = None, None
+    if plot_grace:
+        df1, df2 = input_df_list
+        fig, (ax1, ax2) = plt.subplots(2, 1)
+    else:
+        fig, ax1 = plt.subplots(1, 1)
     fig.suptitle(plot_title)
     df1.set_index('YEAR').plot(ax=ax1)
-    df2.set_index('DT').plot(ax=ax2)
-    df2_years = list(df2.DT)
-    ax1.axvspan(2010.5, 2019.5, color='#a6bddb', alpha=0.6)
+    ax1.axvspan(ty_start - 0.5, ty_end + 0.5, color='#a6bddb', alpha=0.6)
     min_forecast_yr = min(forecast_years)
     ax1.set_xlim(left=np.min(df1.YEAR) - 0.1, right=np.max(df1.YEAR) + 0.1)
     ax1.axvspan(min_forecast_yr - 0.5, np.max(df1.YEAR) + 0.1, color='#fee8c8', alpha=1)
@@ -192,28 +199,34 @@ def create_time_series_forecast_plot(input_df_list, forecast_years=(2019, ), plo
     ax1.set_xticks(df1.YEAR)
     ax1.set_xticklabels(df1.YEAR)
     ax1.set_xlabel('Year')
-    ax2.set_ylim(bottom=-150, top=150)
-    ax2.invert_yaxis()
-    ax2.set_ylabel('Monthly TWS (mm)')
-    ax2.set_xlabel('Year')
-    ax2.legend(loc=2, bbox_to_anchor=(0.1, 1), frameon=False, fancybox=False, labels=['GRACE TWS'])
-    ax2.xaxis.set_major_locator(mdates.YearLocator())
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    datemin = np.datetime64(df2_years[0], 'Y')
-    datemax = np.datetime64(df2_years[-2], 'Y') + np.timedelta64(1, 'Y')
-    ax2.set_xlim(datemin, datemax)
-    ax2.format_xdata = mdates.DateFormatter('%Y')
+    if plot_grace:
+        df2.set_index('DT').plot(ax=ax2)
+        df2_years = list(df2.DT)
+        ax2.set_ylim(bottom=-150, top=150)
+        ax2.invert_yaxis()
+        ax2.set_ylabel('Monthly TWS (mm)')
+        ax2.set_xlabel('Year')
+        ax2.legend(loc=2, bbox_to_anchor=(0.1, 1), frameon=False, fancybox=False, labels=['GRACE TWS'])
+        ax2.xaxis.set_major_locator(mdates.YearLocator())
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+        datemin = np.datetime64(df2_years[0], 'Y')
+        datemax = np.datetime64(df2_years[-2], 'Y') + np.timedelta64(1, 'Y')
+        ax2.set_xlim(datemin, datemax)
+        ax2.format_xdata = mdates.DateFormatter('%Y')
     plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=1.0)
     plt.show()
 
 
-def create_gmd_time_series_forecast_plot(input_df_list, gmd_name_list, forecast_years=(2019, ), plot_title=''):
+def create_gmd_time_series_forecast_plot(input_df_list, gmd_name_list, forecast_years=(2019, ), plot_title='',
+                                         ty_start=2016, ty_end=2018):
     """
     Create time series plot considering all GMDs
     :param input_df_list: Input data frames as constructed from #create_gw_time_series
     :param gmd_name_list: GMD labels
     :param forecast_years: The line color changes for these years
     :param plot_title: Plot title
+    :param ty_start: Test year start
+    :param ty_end: Test year end
     :return: None
     """
 
@@ -223,7 +236,7 @@ def create_gmd_time_series_forecast_plot(input_df_list, gmd_name_list, forecast_
         fig.suptitle(plot_title)
         df = gw_df[gw_df.GMD == gmd]
         df.set_index('YEAR').plot(ax=ax1)
-        ax1.axvspan(2010.5, 2018.5, color='#a6bddb', alpha=0.6)
+        ax1.axvspan(ty_start - 0.5, ty_end + 0.5, color='#a6bddb', alpha=0.6)
         min_forecast_yr = min(forecast_years)
         ax1.set_xlim(left=np.min(df.YEAR) - 0.1, right=np.max(df.YEAR) + 0.1)
         ax1.axvspan(min_forecast_yr - 0.5, np.max(df.YEAR) + 0.1, color='#fee8c8', alpha=1)
@@ -309,7 +322,8 @@ def calculate_gmd_stats(gw_df, gmd_name_list, out_dir, train_end=2010, test_star
 
 
 def run_analysis(actual_gw_dir, pred_gw_dir, grace_csv, out_dir, input_gmd_file=None, use_gmds=True,
-                 actual_gw_pattern='GW*.tif', pred_gw_pattern='pred*.tif', exclude_years=(), forecast_years=()):
+                 actual_gw_pattern='GW*.tif', pred_gw_pattern='pred*.tif', exclude_years=(), forecast_years=(),
+                 ty_start=2016, ty_end=2018):
     """
     Run model analysis to get actual vs predicted graph along with GRACE TWSA variations
     :param actual_gw_dir: Directory containing the actual data
@@ -322,6 +336,8 @@ def run_analysis(actual_gw_dir, pred_gw_dir, grace_csv, out_dir, input_gmd_file=
     :param pred_gw_pattern: Predicted GW pumping raster file pattern
     :param exclude_years: Exclude these years from analysis
     :param forecast_years: Set these years as forecast years
+    :param ty_start: Test year start
+    :param ty_end: Test year end
     :return: None
     """
 
@@ -333,7 +349,7 @@ def run_analysis(actual_gw_dir, pred_gw_dir, grace_csv, out_dir, input_gmd_file=
                                                use_gmds=use_gmds, exclude_years=exclude_years,
                                                forecast_years=forecast_years)
         ts_df = ts_df[0], ts_df[2]
-        create_time_series_forecast_plot(ts_df)
+        create_time_series_forecast_plot(ts_df, ty_start=ty_start, ty_end=ty_end)
     else:
         actual_gw_dir_list, pred_gw_dir_list, gmd_name_list = preprocess_gmds(actual_gw_dir, pred_gw_dir,
                                                                               input_gmd_file, out_dir,
@@ -346,7 +362,7 @@ def run_analysis(actual_gw_dir, pred_gw_dir, grace_csv, out_dir, input_gmd_file=
 
         print(calculate_gmd_stats(ts_df[1], gmd_name_list, out_dir))
         ts_df = ts_df[0], ts_df[2]
-        create_gmd_time_series_forecast_plot(ts_df, gmd_name_list=gmd_name_list)
+        create_gmd_time_series_forecast_plot(ts_df, gmd_name_list=gmd_name_list, ty_start=ty_start, ty_end=ty_end)
 
 
 def generate_scatter_plot(y_true, y_pred):

@@ -1,6 +1,8 @@
 # Author: Sayantan Majumdar
 # Email: smxnv@mst.edu
 
+import numpy as np
+import pandas as pd
 from Python_Files.modeling import gw_driver, ml_driver, pca_reduce
 from Python_Files.modeling import model_analysis as ma
 from Python_Files.datalibs.sysops import make_proper_dir_name, makedirs
@@ -35,7 +37,7 @@ class HydroNet:
         self.timesteps = 1
 
     def scale_and_split_df(self, pred_attr='GW', shuffle=False, drop_attrs=(), test_year=(2012,), test_size=0.2,
-                           split_yearly=True, scaling=True, load_data=False):
+                           split_yearly=True, scaling=True, load_data=False, pred_attr_threshold=None):
         """
         Scale input dataframe and then generate training and testing data
         :param pred_attr: Target attribute
@@ -46,6 +48,8 @@ class HydroNet:
         :param split_yearly: Split train and test data based on years
         :param scaling: Set False to use original data
         :param load_data: Set True to load existing scaled train and test data
+        :param pred_attr_threshold: Threshold value to discard outliers, default 1500 mm for GW.
+        Set None to disable discarding outliers
         :return: None
         """
 
@@ -59,7 +63,8 @@ class HydroNet:
             self.input_df, self.train_test_out_dir, pred_attr=pred_attr,
             shuffle=shuffle, drop_attrs=drop_attrs, test_year=test_year,
             test_size=test_size, split_yearly=split_yearly,
-            random_state=self.random_state, load_data=load_data
+            random_state=self.random_state, load_data=load_data,
+            pred_attr_threshold=pred_attr_threshold
         )
         self.scaling = scaling
         if scaling:
@@ -207,6 +212,62 @@ class HydroNet:
         train_stats = ma.get_error_stats(self.y_train, pred_train)
         print('Train, Test Stats:', train_stats, test_stats)
 
+    def get_prediction_results(self, gw_df, actual_gw, gw_ks, gw_az, grace_ks, grace_az, exclude_vars_ks,
+                               exclude_vars_az, test_years, pred_years, forecast_years=(2019,)):
+        """
+        Generate prediction results for Overall data, Kansas data, and Arizona data
+        :param gw_df: Input dataframe
+        :param actual_gw: Actual GW values
+        :param gw_ks: HydroML Kansas object
+        :param gw_az: HydroML Arizona object
+        :param grace_ks: GRACE CSV path for Kansas
+        :param grace_az: GRACE CSV path for Arizona
+        :param exclude_vars_ks: Exclude these variables from plot for Kansas
+        :param exclude_vars_az: Exclude these variables from plot for Arizona
+        :param test_years: Test years
+        :param pred_years: Prediction years
+        :param forecast_years: Forecast years
+        :return: None
+        """
+
+        actual_gw_dir, pred_gw_dir = gw_ks.get_predictions(fitted_model=self.built_model, pred_years=pred_years,
+                                                           drop_attrs=self.drop_attrs, exclude_vars=exclude_vars_ks,
+                                                           pred_attr=self.pred_attr, only_pred=False,
+                                                           x_scaler=self.x_scaler, y_scaler=self.y_scaler)
+        ma.run_analysis(actual_gw_dir, pred_gw_dir, grace_ks, use_gmds=False, input_gmd_file=None,
+                        out_dir=self.output_dir, forecast_years=forecast_years, ty_start=test_years[0],
+                        ty_end=test_years[-1])
+        actual_gw_dir, pred_gw_dir = gw_az.get_predictions(fitted_model=self.built_model, pred_years=pred_years,
+                                                           drop_attrs=self.drop_attrs, pred_attr=self.pred_attr,
+                                                           exclude_vars=exclude_vars_az, exclude_years=(),
+                                                           only_pred=False, use_full_extent=False,
+                                                           x_scaler=self.x_scaler, y_scaler=self.y_scaler)
+        ma.run_analysis(actual_gw_dir, pred_gw_dir, grace_az, use_gmds=False, input_gmd_file=None,
+                        out_dir=self.output_dir, forecast_years=forecast_years,
+                        ty_start=test_years[0], ty_end=test_years[-1])
+
+        gw_year = gw_df['YEAR'].to_numpy().ravel()
+        drop_attrs = [drop_attr for drop_attr in self.drop_attrs]
+        gw_df = gw_df.drop(columns=drop_attrs)
+        pred_gw = self.built_model.predict(self.x_scaler.transform(gw_df))
+        pred_gw = self.y_scaler.inverse_transform(pred_gw.reshape(-1, 1)).ravel()
+        subset_gw_df = pd.DataFrame(data={'YEAR': gw_year, 'Pred_GW': pred_gw})
+        print(subset_gw_df)
+        year_list = sorted(set(subset_gw_df['YEAR']))
+        mean_actual_gw = []
+        mean_pred_gw = []
+        for year in year_list:
+            sub_df = subset_gw_df[subset_gw_df.YEAR == year]
+            if year not in forecast_years:
+                actual_df = actual_gw[actual_gw.YEAR == year]
+                mean_actual_gw.append(np.mean(actual_df[self.pred_attr]))
+            else:
+                mean_actual_gw.append(np.nan)
+            mean_pred_gw.append(np.mean(sub_df.Pred_GW))
+        mean_gw_df = pd.DataFrame(data={'YEAR': year_list, 'Actual_GW': mean_actual_gw, 'Pred_GW': mean_pred_gw})
+        mean_gw_df.to_csv(self.output_dir + 'Overall_Mean_GW_Pred.csv', index=False)
+        ma.create_time_series_forecast_plot(mean_gw_df, ty_start=test_years[0], ty_end=test_years[-1], plot_grace=False)
+
 
 def run_ml_gw():
     """
@@ -214,19 +275,32 @@ def run_ml_gw():
     :return: None
     """
 
-    gw_df = gw_driver.create_ml_data(load_df=True)
+    gw_df, gw_ks, gw_az = gw_driver.create_ml_data(load_df=False)
     output_dir = r'..\Outputs\All_Data'
     test_years = range(2016, 2019)
     drop_attrs = ('YEAR',)
-    hydronet = HydroNet(gw_df, output_dir, random_state=42)
+    input_df = gw_df.dropna(axis=0)
+    pred_attr = 'GW'
+    hydronet = HydroNet(input_df, output_dir, random_state=42)
     hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=True,
-                                load_data=False)
+                                load_data=True, pred_attr=pred_attr)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
     hydronet.perform_regression(use_pca_data=False, model_type='kreg', use_keras_tuner=False, validation_split=0.1,
-                                max_trials=10, max_exec_trials=1, batch_size=512, epochs=100, load_model=False,
+                                max_trials=10, max_exec_trials=1, batch_size=512, epochs=100, load_model=True,
                                 model_number=2, timesteps=1, bidirectional=None, random_state=123,
                                 load_weights=None)
     hydronet.get_error_stats()
+    exclude_vars_ks = ('ET',)
+    exclude_vars_az = ('ET', 'WS_PA', 'WS_PA_EA', 'WS_PT', 'WS_PT_ET')
+    grace_ks = '../Inputs/Data/Kansas_GW/GRACE/TWS_GRACE.csv'
+    grace_az = '../Inputs/Data/Arizona_GW/GRACE/TWS_GRACE.csv'
+    pred_years = range(2002, 2020)
+    forecast_years = (2019,)
+    actual_gw = gw_df[[pred_attr, 'YEAR']].dropna(axis=0)
+    gw_df = gw_df.drop(columns=[pred_attr])
+    gw_df = gw_df.dropna(axis=0)
+    hydronet.get_prediction_results(gw_df, actual_gw, gw_ks, gw_az, grace_ks, grace_az, exclude_vars_ks,
+                                    exclude_vars_az, test_years, pred_years, forecast_years)
 
 
 run_ml_gw()

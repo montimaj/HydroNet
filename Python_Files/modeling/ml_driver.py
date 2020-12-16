@@ -226,7 +226,7 @@ def scale_df(x_train, y_train, x_test, y_test, output_dir, load_data=False):
 
 
 def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(), test_year=(2012,), test_size=0.2,
-               split_yearly=True, random_state=0, load_data=False):
+               split_yearly=True, random_state=0, load_data=False, pred_attr_threshold=1500):
     """
 
     :param input_df: Input Pandas dataframe
@@ -239,6 +239,8 @@ def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(
     :param split_yearly: Split train and test data based on years
     :param random_state: PRNG seed for reproducibility
     :param load_data: Set True to load existing scaled train and test data
+    :param pred_attr_threshold: Threshold value to discard outliers, default 1500 mm for GW.
+    Set None to disable discarding outliers
     :return: None
     """
 
@@ -250,6 +252,8 @@ def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(
         y_test = pd.read_csv(output_dir + 'Y_Test.csv')
         y_test = y_test.to_numpy().ravel()
     else:
+        if pred_attr_threshold:
+            input_df = input_df[input_df[pred_attr] < pred_attr_threshold].copy()
         if not split_yearly:
             x_train, y_train, x_test, y_test = split_data_train_test(input_df, pred_attr=pred_attr, test_size=test_size,
                                                                      random_state=random_state, shuffle=shuffle,
@@ -449,11 +453,12 @@ def perform_mlpregression(X_train_data, y_train_data, output_dir, cv=10, grid_it
     return mlp_regressor
 
 
-def create_pred_raster(rf_model, out_raster, actual_raster_dir, column_names=None, exclude_vars=(), pred_year=2015,
-                       pred_attr='GW', drop_attrs=(), only_pred=False, calculate_errors=True, ordering=False):
+def create_pred_raster(fitted_model, out_raster, actual_raster_dir, column_names=None, exclude_vars=(), pred_year=2015,
+                       pred_attr='GW', drop_attrs=(), only_pred=False, calculate_errors=True, ordering=False,
+                       x_scaler=None, y_scaler=None):
     """
     Create prediction raster
-    :param rf_model: Pre-built Random Forest Model
+    :param fitted_model: Pre-built Model
     :param out_raster: Output raster
     :param actual_raster_dir: Ground truth raster files required for prediction
     :param column_names: Dataframe column names, these must be df headers
@@ -465,6 +470,8 @@ def create_pred_raster(rf_model, out_raster, actual_raster_dir, column_names=Non
     automatically set to False if calculate_errors is False
     :param calculate_errors: Calculate error metrics if actual observations are present
     :param ordering: Set True to order dataframe column names
+    :param x_scaler: Scaler object for scaling predictors
+    :param y_scaler: Scaler object for inverse scaling predictions
     :return: MAE, RMSE, and R^2 statistics (rounded to 2 decimal places)
     """
 
@@ -485,7 +492,6 @@ def create_pred_raster(rf_model, out_raster, actual_raster_dir, column_names=Non
                 raster_arr[nan_pos_dict[variable]] = 0
             raster_arr_dict[variable] = raster_arr
             raster_arr_dict['YEAR'] = [year] * raster_arr.shape[0]
-
     input_df = pd.DataFrame(data=raster_arr_dict)
     input_df = input_df.dropna(axis=0)
     input_df = reindex_df(input_df, column_names=column_names, ordering=ordering)
@@ -495,7 +501,11 @@ def create_pred_raster(rf_model, out_raster, actual_raster_dir, column_names=Non
         if not column_names:
             drop_cols.remove(pred_attr)
         input_df = input_df.drop(columns=drop_cols)
-        pred_arr = rf_model.predict(input_df)
+        if x_scaler:
+            input_df[input_df.columns] = x_scaler.transform(input_df)
+        pred_arr = fitted_model.predict(input_df)
+        if y_scaler:
+            pred_arr = y_scaler.inverse_transform(pred_arr.reshape(-1, 1)).ravel()
         if not only_pred:
             for nan_pos in nan_pos_dict.values():
                 pred_arr[nan_pos] = actual_file.nodata
@@ -506,7 +516,11 @@ def create_pred_raster(rf_model, out_raster, actual_raster_dir, column_names=Non
         else:
             actual_arr = raster_arr_dict[pred_attr]
         input_df = input_df.drop(columns=drop_columns)
-        pred_arr = rf_model.predict(input_df)
+        if x_scaler:
+            input_df[input_df.columns] = x_scaler.transform(input_df)
+        pred_arr = fitted_model.predict(input_df)
+        if y_scaler:
+            pred_arr = y_scaler.inverse_transform(pred_arr.reshape(-1, 1)).ravel()
         if not only_pred:
             for nan_pos in nan_pos_dict.values():
                 actual_arr[nan_pos] = actual_file.nodata
@@ -523,11 +537,12 @@ def create_pred_raster(rf_model, out_raster, actual_raster_dir, column_names=Non
     return mae, rmse, r2_score, nrmse, nmae
 
 
-def predict_rasters(rf_model, actual_raster_dir, out_dir, pred_years, column_names=None, drop_attrs=(), pred_attr='GW',
-                    only_pred=False, exclude_vars=(), exclude_years=(2019,), ordering=False):
+def predict_rasters(fitted_model, actual_raster_dir, out_dir, pred_years, column_names=None, drop_attrs=(),
+                    pred_attr='GW', only_pred=False, exclude_vars=(), exclude_years=(2019,), ordering=False,
+                    x_scaler=None, y_scaler=None):
     """
     Create prediction rasters from input data
-    :param rf_model: Pre-trained Random Forest Model
+    :param fitted_model: Pre-trained Model
     :param actual_raster_dir: Directory containing input rasters
     :param out_dir: Output directory for predicted rasters
     :param pred_years: Tuple containing prediction years
@@ -538,6 +553,8 @@ def predict_rasters(rf_model, actual_raster_dir, out_dir, pred_years, column_nam
     :param exclude_vars: Exclude these variables from the model prediction
     :param exclude_years: Exclude these years from error analysis, only the respective predicted rasters are generated
     :param ordering: Set True to order dataframe column names
+    :param x_scaler: Scaler object for scaling predictors
+    :param y_scaler: Scaler object for inverse scaling predictions
     :return: None
     """
 
@@ -546,15 +563,11 @@ def predict_rasters(rf_model, actual_raster_dir, out_dir, pred_years, column_nam
         calculate_errors = True
         if pred_year in exclude_years:
             calculate_errors = False
-        mae, rmse, r_squared, normalized_rmse, normalized_mae = create_pred_raster(rf_model, out_raster=out_pred_raster,
-                                                                                   actual_raster_dir=actual_raster_dir,
-                                                                                   exclude_vars=exclude_vars,
-                                                                                   pred_year=pred_year,
-                                                                                   drop_attrs=drop_attrs,
-                                                                                   pred_attr=pred_attr,
-                                                                                   only_pred=only_pred,
-                                                                                   calculate_errors=calculate_errors,
-                                                                                   column_names=column_names,
-                                                                                   ordering=ordering)
+        mae, rmse, r_squared, normalized_rmse, normalized_mae = create_pred_raster(
+            fitted_model, out_raster=out_pred_raster, actual_raster_dir=actual_raster_dir,
+            exclude_vars=exclude_vars, pred_year=pred_year, drop_attrs=drop_attrs,
+            pred_attr=pred_attr, only_pred=only_pred, calculate_errors=calculate_errors,
+            column_names=column_names, ordering=ordering, x_scaler=x_scaler, y_scaler=y_scaler
+        )
         print('YEAR', pred_year, ': MAE =', mae, 'RMSE =', rmse, 'R^2 =', r_squared,
               'Normalized RMSE =', normalized_rmse, 'Normalized MAE =', normalized_mae)

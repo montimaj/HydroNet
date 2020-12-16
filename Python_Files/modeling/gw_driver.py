@@ -2,6 +2,7 @@
 # Email: smxnv@mst.edu
 
 import pandas as pd
+import pickle
 from Python_Files.datalibs import rasterops as rops
 from Python_Files.datalibs import vectorops as vops
 from Python_Files.datalibs import data_download as dd
@@ -584,7 +585,8 @@ class HydroML:
             return df
 
     def get_predictions(self, fitted_model, pred_years, column_names=None, ordering=False, pred_attr='GW',
-                        only_pred=False, exclude_vars=(), exclude_years=(2019,), drop_attrs=(), use_full_extent=False):
+                        only_pred=False, exclude_vars=(), exclude_years=(2019,), drop_attrs=(), use_full_extent=False,
+                        x_scaler=None, y_scaler=None):
         """
         Get prediction results and/or rasters
         :param fitted_model: Fitted Ml/DL model object
@@ -597,6 +599,8 @@ class HydroML:
         :param exclude_years: List of years to exclude from dataframe
         :param drop_attrs: Drop these specified attributes
         :param use_full_extent: Set True to predict over entire region
+        :param x_scaler: Scaler object for scaling predictors
+        :param y_scaler: Scaler object for inverse scaling predictions
         :return: Actual and Predicted raster directory paths
         """
 
@@ -609,7 +613,7 @@ class HydroML:
         mld.predict_rasters(fitted_model, pred_years=pred_years, drop_attrs=drop_attrs, out_dir=self.pred_out_dir,
                             actual_raster_dir=actual_raster_dir, pred_attr=pred_attr, only_pred=only_pred,
                             exclude_vars=exclude_vars, exclude_years=exclude_years, column_names=column_names,
-                            ordering=ordering)
+                            ordering=ordering, x_scaler=x_scaler, y_scaler=y_scaler)
         return actual_raster_dir, self.pred_out_dir
 
     def create_subsidence_pred_gw_rasters(self, scale_to_cm=True, verbose=False, already_created=False):
@@ -695,7 +699,7 @@ def run_gw_ks(load_files=True, load_df=False, verbose=True):
     gw.reproject_rasters(already_reprojected=load_files)
     gw.create_land_use_rasters(already_created=load_files)
     gw.mask_rasters(already_masked=load_files)
-    df = gw.create_dataframe(year_list=range(2002, 2020), exclude_vars=exclude_vars, load_df=load_df,
+    df = gw.create_dataframe(year_list=range(2002, 2020), exclude_vars=exclude_vars, load_df=load_df, exclude_years=(),
                              remove_na=False, verbose=verbose)
     return gw, df
 
@@ -745,14 +749,14 @@ def run_gw_az(load_files=True, load_df=False, verbose=True):
     gw.preprocess_gw_csv(input_gw_csv_dir, fill_attr=fill_attr, filter_attr=filter_attr, use_only_ama_ina=False,
                          already_preprocessed=load_files)
     gw.reproject_shapefiles(already_reprojected=load_files)
-    gw.create_gw_rasters(already_created=load_files, value_field=fill_attr, xres=5000, yres=5000, max_gw=2e+4)
+    gw.create_gw_rasters(already_created=load_files, value_field=fill_attr, xres=5000, yres=5000, max_gw=1000)
     gw.crop_gw_rasters(use_ama_ina=False, already_cropped=load_files)
     gw.reclassify_cdl(az_class_dict, already_reclassified=load_files)
     gw.create_crop_coeff_raster(already_created=load_files)
     gw.reproject_rasters(already_reprojected=load_files)
     gw.create_land_use_rasters(already_created=load_files, smoothing_factors=(3, 5, 3))
     gw.mask_rasters(already_masked=load_files)
-    df = gw.create_dataframe(year_list=range(2002, 2020), exclude_vars=exclude_vars, exclude_years=(2019,),
+    df = gw.create_dataframe(year_list=range(2002, 2020), exclude_vars=exclude_vars, exclude_years=(),
                              load_df=load_df, remove_na=False, verbose=verbose)
     return gw, df
 
@@ -763,16 +767,21 @@ def create_ml_data(load_files=True, load_df=True, verbose=True):
     :param load_files: Set True to load existing files, needed only if analyze_only=False
     :param load_df: Set True to load existing dataframe from CSV
     :param verbose: Set False to hide extra info
-    :return: Pandas dataframe
+    :return: Pandas dataframe, HydroML Kansas object, HydroML Arizona object
     """
 
     final_gw_csv = '../Outputs/All_Data/GW_DF_KS_AZ.csv'
+    gw_ks_file = '../Outputs/All_Data/gw_ks'
+    gw_az_file = '../Outputs/All_Data/gw_az'
     if load_df:
         final_gw_df = pd.read_csv(final_gw_csv)
+        gw_ks = pickle.load(open(gw_ks_file, mode='rb'))
+        gw_az = pickle.load(open(gw_az_file, mode='rb'))
     else:
         gw_ks, ks_df = run_gw_ks(load_files=load_files, load_df=load_df, verbose=verbose)
         gw_az, az_df = run_gw_az(load_files=load_files, load_df=load_df, verbose=verbose)
         final_gw_df = ks_df.append(az_df)
-        final_gw_df = final_gw_df.dropna(axis=0)
         final_gw_df.to_csv(final_gw_csv, index=False)
-    return final_gw_df
+        pickle.dump(gw_ks, open(gw_ks_file, mode='wb'))
+        pickle.dump(gw_az, open(gw_az_file, mode='wb'))
+    return final_gw_df, gw_ks, gw_az
