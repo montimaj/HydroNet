@@ -17,7 +17,8 @@ class HydroNet:
 
         self.input_df = input_df
         self.output_dir = make_proper_dir_name(output_dir)
-        makedirs([self.output_dir])
+        self.model_output_dir = make_proper_dir_name(self.output_dir + 'Model_Dumps')
+        makedirs([self.output_dir, self.model_output_dir])
         self.random_state = random_state
         self.scaled_df = None
         self.scaler = None
@@ -25,7 +26,6 @@ class HydroNet:
         self.x_train_pca, self.x_test_pca, self.fit_pca = [None] * 3
         self.train_test_out_dir = None
         self.pca_output_dir = None
-        self.model_output_dir = None
         self.built_model = None
         self.drop_attrs = None
         self.pred_attr = None
@@ -116,9 +116,6 @@ class HydroNet:
         :return: None
         """
 
-        self.model_output_dir = make_proper_dir_name(self.output_dir + 'Model_Dumps')
-        if not load_model:
-            makedirs([self.model_output_dir])
         x_train_data = self.x_train
         x_test_data = self.x_test
         if use_pca_data:
@@ -141,13 +138,14 @@ class HydroNet:
             epochs = kwargs.get('epochs', None)
             use_keras_tuner = kwargs.get('use_keras_tuner', True)
             model_number = kwargs.get('model_number', 2)
+            load_weights = kwargs.get('load_weights', None)
             self.built_model = ml_driver.perform_kerasregression(x_train_data, x_test_data, self.y_train, self.y_test,
                                                                  self.model_output_dir, random_state=self.random_state,
                                                                  validation_split=validation_split,
                                                                  max_trials=max_trials, max_exec_trial=max_exec_trial,
                                                                  batch_size=batch_size, epochs=epochs,
                                                                  use_keras_tuner=use_keras_tuner, load_model=load_model,
-                                                                 model_number=model_number)
+                                                                 model_number=model_number, load_weights=load_weights)
         elif model_type == 'lstm':
             fold_count = kwargs.get('max_trials', 10)
             n_repeats = kwargs.get('max_exec_trials', 3)
@@ -164,7 +162,8 @@ class HydroNet:
 
         else:
             self.built_model = ml_driver.perform_ml_regression(x_train_data, x_test_data, self.y_train, self.y_test,
-                                                               output_dir=self.model_output_dir, ml_model=model_type)
+                                                               output_dir=self.model_output_dir, ml_model=model_type,
+                                                               random_state=self.random_state)
 
     def get_error_stats(self, use_pca_data=False, model_type=None):
         """
@@ -221,11 +220,12 @@ def run_ml_gw():
     drop_attrs = ('YEAR',)
     hydronet = HydroNet(gw_df, output_dir, random_state=42)
     hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=True,
-                                load_data=True)
+                                load_data=False)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
     hydronet.perform_regression(use_pca_data=False, model_type='kreg', use_keras_tuner=False, validation_split=0.1,
-                                max_trials=10, max_exec_trials=1, batch_size=512, epochs=200, load_model=False,
-                                model_number=2, timesteps=1, bidirectional=None)
+                                max_trials=10, max_exec_trials=1, batch_size=512, epochs=100, load_model=False,
+                                model_number=2, timesteps=1, bidirectional=None, random_state=123,
+                                load_weights=None)
     hydronet.get_error_stats()
 
 

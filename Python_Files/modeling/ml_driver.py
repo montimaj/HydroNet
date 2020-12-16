@@ -251,19 +251,19 @@ def split_data(input_df, output_dir, pred_attr='GW', shuffle=False, drop_attrs=(
         y_test = y_test.to_numpy().ravel()
     else:
         if not split_yearly:
-            x_train, x_test, y_train, y_test = split_data_train_test(input_df, pred_attr=pred_attr, test_size=test_size,
+            x_train, y_train, x_test, y_test = split_data_train_test(input_df, pred_attr=pred_attr, test_size=test_size,
                                                                      random_state=random_state, shuffle=shuffle,
                                                                      outdir=output_dir, drop_attrs=drop_attrs)
         else:
-            x_train, x_test, y_train, y_test = split_yearly_data(input_df, pred_attr=pred_attr, outdir=output_dir,
+            x_train, y_train, x_test, y_test = split_yearly_data(input_df, pred_attr=pred_attr, outdir=output_dir,
                                                                  drop_attrs=drop_attrs, test_years=test_year,
                                                                  shuffle=shuffle, random_state=random_state)
-    return x_train, x_test, y_train, y_test
+    return x_train, y_train, x_test, y_test
 
 
 def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, max_trials=20,
                             max_exec_trial=5, validation_split=0.1, batch_size=None, epochs=None, random_state=0,
-                            use_keras_tuner=True, load_model=False, model_number=2):
+                            use_keras_tuner=True, load_model=False, load_weights=None, model_number=2):
     """
     Perform regression using Tensorflow and Keras
     :param X_train_data: Training data as Pandas dataframe
@@ -280,6 +280,7 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     :param use_keras_tuner: Set False to use KerasANN without auto hypertuning
     :param load_model: Set True to load existing model. Load model won't work with custom metric in TF 2.1.0
     :param model_number: Set model number for Keras-Tuner
+    :param load_weights: Set saved model file path to load weights from that pre-trained model
     :return: Fitted model and prediction statistics
     """
 
@@ -288,7 +289,7 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
     session = tf.compat.v1.Session(config=config)
     tf.compat.v1.keras.backend.set_session(session)
     kerastuner_output_file = output_dir + 'KerasTunerANN.tf'
-    kerasann_output_file = output_dir + 'KerasANN1.tf'
+    kerasann_output_file = output_dir + 'KerasANN_Best.tf'
     if not load_model:
         num_features = X_train_data.shape[1]
         if use_keras_tuner:
@@ -313,7 +314,8 @@ def perform_kerasregression(X_train_data, X_test_data, y_train_data, y_test_data
             print(best_trial.summary())
             store_load_keras_model(model=trained_model, output_file=kerastuner_output_file)
         else:
-            keras_ann = KerasANN(output_dir, input_features=num_features, output_features=1)
+            keras_ann = KerasANN(output_dir, input_features=num_features, output_features=1, random_state=random_state,
+                                 load_weights=load_weights)
             keras_ann.ready()
             trained_model = keras_ann.learn(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data,
                                             batch_size=batch_size, epochs=epochs, fold_count=max_trials,
@@ -384,7 +386,8 @@ def perform_linearregression(X_train_data, X_test_data, y_train_data, y_test_dat
     return lreg
 
 
-def perform_ml_regression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, ml_model='RF'):
+def perform_ml_regression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, ml_model='RF',
+                          random_state=0):
     """
     Perform regression using Random Forests, ExtraTrees, or XGBoost
     :param X_train_data: Training data as Pandas dataframe
@@ -393,10 +396,11 @@ def perform_ml_regression(X_train_data, X_test_data, y_train_data, y_test_data, 
     :param y_test_data:Test labels as numpy array
     :param output_dir: Output directory to dump the best-fit model
     :param ml_model: Set ML model, models include 'RF', 'ETR', 'XGB'
+    :param random_state: PRNG seed
     :return: Fitted model object
     """
 
-    tree_ml = TreeML(output_dir, ml_model)
+    tree_ml = TreeML(output_dir, ml_model, random_state)
     model = tree_ml.learn(X_train_data, X_test_data, y_train_data, y_test_data)
     return model
 

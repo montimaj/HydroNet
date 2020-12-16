@@ -4,12 +4,15 @@
 import tensorflow.keras.backend as kb
 import tensorflow as tf
 import numpy as np
+import random as python_random
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import RepeatedKFold
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 from xgboost import XGBRegressor
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Activation, Dense, Dropout, BatchNormalization, LSTM, ConvLSTM2D, Conv1D
+from tensorflow.keras.initializers import Constant
+from tensorflow.keras.layers import Input, Activation, Dense, PReLU, Dropout, BatchNormalization
+from tensorflow.keras.layers import LSTM, ConvLSTM2D, Conv1D
 from tensorflow.keras.layers import Bidirectional, TimeDistributed, MaxPooling1D, Flatten
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.utils import plot_model
@@ -200,7 +203,7 @@ class KerasANN:
     """
 
     def __init__(self, output_dir, input_features=6, hidden_units=(2048, 1024, 512, 256, 128, 64, 32, 16),
-                 output_features=1, dropout=0.01):
+                 output_features=1, dropout=0.01, random_state=0, load_weights=None):
         """
         Constructor for KerasANN
         :param output_dir: Output directory for storing plots and history
@@ -209,25 +212,33 @@ class KerasANN:
         that hidden layer
         :param output_features: Number of output features
         :param dropout: Dropout probability
+        :param random_state: PRNG seed
+        :param load_weights: Set saved model file path to load weights from that pre-trained model
         """
 
+        np.random.seed(random_state)
+        python_random.seed(random_state)
+        tf.random.set_seed(random_state)
         input_layer = Input(shape=(input_features,), name='input_layer',)
-        hidden_layer = Dense(units=hidden_units[0],)(input_layer)
+        hidden_layer = Dense(units=hidden_units[0], kernel_initializer='he_uniform')(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Activation('relu')(hidden_layer)
         hidden_layer = Dropout(dropout)(hidden_layer)
         for unit in hidden_units[1:]:
-            hidden_layer = Dense(units=unit,)(hidden_layer)
+            hidden_layer = Dense(units=unit, kernel_initializer='he_uniform')(hidden_layer)
             hidden_layer = BatchNormalization()(hidden_layer)
             hidden_layer = Activation('relu')(hidden_layer)
             hidden_layer = Dropout(dropout)(hidden_layer)
-        output_layer = Dense(units=output_features,)(hidden_layer)
+        output_layer = Dense(units=output_features, kernel_initializer='he_uniform')(hidden_layer)
         output_layer = BatchNormalization()(output_layer)
         output_layer = Activation('relu')(output_layer)
         self._model = Model(input_layer, output_layer)
+        if load_weights:
+            saved_model_weights = store_load_keras_model(load_weights).get_weights()
+            self._model.set_weights(saved_model_weights)
         self._input_features = input_features
         self._output_features = output_features
-        self._output_dir = make_proper_dir_name(output_dir + 'KerasANN_History1')
+        self._output_dir = make_proper_dir_name(output_dir + 'KerasANN_History')
         deletedirs([self._output_dir])
         makedirs([self._output_dir])
         self._is_ready = False
@@ -243,7 +254,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-4, epsilon=1e-7),
+            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-6),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
@@ -296,11 +307,12 @@ class KerasANN:
 
 class TreeML:
 
-    def __init__(self, output_dir, ml_model='RF'):
+    def __init__(self, output_dir, ml_model='RF', random_state=0):
         """
         Constructor for KerasANN
         :param output_dir: Output directory for storing plots and history
         :param ml_model: Set ML model, models include 'RF', 'ETR', 'XGB'
+        :param random_state: PRNG seed
         """
 
         self._output_dir = make_proper_dir_name(output_dir + 'TreeML_History/' + ml_model)
@@ -308,11 +320,11 @@ class TreeML:
         makedirs([self._output_dir])
         print('Performing', ml_model)
         if ml_model == 'RF':
-            self._model = RandomForestRegressor(n_estimators=500, n_jobs=-2, random_state=0)
+            self._model = RandomForestRegressor(n_estimators=500, n_jobs=-2, random_state=random_state)
         elif ml_model == 'ETR':
-            self._model = ExtraTreesRegressor(n_estimators=500, n_jobs=-2, random_state=0, bootstrap=True)
+            self._model = ExtraTreesRegressor(n_estimators=500, n_jobs=-2, random_state=random_state, bootstrap=True)
         else:
-            self._model = XGBRegressor(n_estimators=20000, n_jobs=-2, eta=1e-3, random_state=0,
+            self._model = XGBRegressor(n_estimators=20000, n_jobs=-2, eta=1e-3, random_state=random_state,
                                        objective='reg:squarederror', tree_method='hist', grow_policy='lossguide',
                                        rate_drop=0.01)
 
