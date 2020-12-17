@@ -240,7 +240,7 @@ class HydroNet:
         actual_gw_dir, pred_gw_dir = gw_az.get_predictions(fitted_model=self.built_model, pred_years=pred_years,
                                                            drop_attrs=self.drop_attrs, pred_attr=self.pred_attr,
                                                            exclude_vars=exclude_vars_az, exclude_years=(),
-                                                           only_pred=False, use_full_extent=False,
+                                                           only_pred=False, use_full_extent=True,
                                                            x_scaler=self.x_scaler, y_scaler=self.y_scaler)
         ma.run_analysis(actual_gw_dir, pred_gw_dir, grace_az, use_gmds=False, input_gmd_file=None,
                         out_dir=self.output_dir, forecast_years=forecast_years,
@@ -252,7 +252,6 @@ class HydroNet:
         pred_gw = self.built_model.predict(self.x_scaler.transform(gw_df))
         pred_gw = self.y_scaler.inverse_transform(pred_gw.reshape(-1, 1)).ravel()
         subset_gw_df = pd.DataFrame(data={'YEAR': gw_year, 'Pred_GW': pred_gw})
-        print(subset_gw_df)
         year_list = sorted(set(subset_gw_df['YEAR']))
         mean_actual_gw = []
         mean_pred_gw = []
@@ -275,7 +274,7 @@ def run_ml_gw():
     :return: None
     """
 
-    gw_df, gw_ks, gw_az = gw_driver.create_ml_data(load_df=False)
+    gw_df, gw_ks, gw_az = gw_driver.create_ml_data(load_df=True)
     output_dir = r'..\Outputs\All_Data'
     test_years = range(2016, 2019)
     drop_attrs = ('YEAR',)

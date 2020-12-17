@@ -254,7 +254,7 @@ class KerasANN:
         """
 
         optimizer_dict = {
-            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-5),
+            'adam': keras.optimizers.Adam(learning_rate=1e-3, epsilon=1e-7),
             'sgd': keras.optimizers.SGD(momentum=0.3),
             'rmsprop': keras.optimizers.RMSprop(centered=True, momentum=0.3),
             'adagrad': keras.optimizers.Adagrad(),
