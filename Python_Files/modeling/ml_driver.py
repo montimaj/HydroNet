@@ -391,7 +391,7 @@ def perform_linearregression(X_train_data, X_test_data, y_train_data, y_test_dat
 
 
 def perform_ml_regression(X_train_data, X_test_data, y_train_data, y_test_data, output_dir, ml_model='RF',
-                          random_state=0):
+                          random_state=0, fold_count=10, repeats=1):
     """
     Perform regression using Random Forests, ExtraTrees, or XGBoost
     :param X_train_data: Training data as Pandas dataframe
@@ -401,11 +401,14 @@ def perform_ml_regression(X_train_data, X_test_data, y_train_data, y_test_data, 
     :param output_dir: Output directory to dump the best-fit model
     :param ml_model: Set ML model, models include 'RF', 'ETR', 'XGB'
     :param random_state: PRNG seed
+    :param fold_count: Number of cross-validation folds
+    :param repeats: KFold repeats
     :return: Fitted model object
     """
 
     tree_ml = TreeML(output_dir, ml_model, random_state)
-    model = tree_ml.learn(X_train_data, X_test_data, y_train_data, y_test_data)
+    model = tree_ml.learn(X_train_data.to_numpy(), X_test_data.to_numpy(), y_train_data, y_test_data, fold_count,
+                          repeats)
     return model
 
 

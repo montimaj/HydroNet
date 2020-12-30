@@ -10,7 +10,6 @@ from sklearn.model_selection import RepeatedKFold
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 from xgboost import XGBRegressor
 from tensorflow.keras.models import Model
-from tensorflow.keras.initializers import Constant
 from tensorflow.keras.layers import Input, Activation, Dense, PReLU, Dropout, BatchNormalization
 from tensorflow.keras.layers import LSTM, ConvLSTM2D, Conv1D
 from tensorflow.keras.layers import Bidirectional, TimeDistributed, MaxPooling1D, Flatten
@@ -328,20 +327,26 @@ class TreeML:
                                        objective='reg:squarederror', tree_method='hist', grow_policy='lossguide',
                                        rate_drop=0.01)
 
-    def learn(self, x_train, x_test, y_train, y_test):
+    def learn(self, x_train, x_test, y_train, y_test, fold_count=10, repeats=1):
         """
         Call this to build model
         :param x_train: Training data as numpy array
         :param x_test: Test data as numpy array
         :param y_train: Training labels as numpy array
         :param y_test: Test labels as numpy array
+        :param fold_count: Number of cross-validation folds
+        :param repeats: KFold repeats
         :return: Trained model object
         """
 
-        self._model.fit(x_train, y_train)
-        train_score = np.round(self._model.score(x_train, y_train), 2)
+        kfold = RepeatedKFold(n_splits=fold_count, n_repeats=repeats, random_state=42)
+        for train, validation in kfold.split(x_train, y_train):
+            self._model.fit(x_train[train], y_train[train])
+            train_score = np.round(self._model.score(x_train[train], y_train[train]), 2)
+            validation_score = np.round(self._model.score(x_train[validation], y_train[validation]), 2)
+            print('Train/Validation Scores', train_score, validation_score)
         test_score = np.round(self._model.score(x_test, y_test), 2)
-        print(train_score, test_score)
+        print('Test Score', test_score)
         return self._model
 
 

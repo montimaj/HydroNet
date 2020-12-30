@@ -116,7 +116,7 @@ class HydroNet:
         Perform regression using different models
         :param use_pca_data: Set True to use PCA transformed data
         :param model_type: Regression model, default is Keras Regression ('kreg').
-        Others include 'mlp,'lreg', 'vlstm', 'lstm', 'cnnlstm'
+        Others include 'mlp, 'lreg', 'vlstm', 'lstm', 'RF', 'ETR', 'XGBoost'
         :param load_model: Set True to load existing model
         :return: None
         """
@@ -166,9 +166,12 @@ class HydroNet:
                                                                  bidirectional=bidirectional)
 
         else:
+            max_trials = kwargs.get('max_trials', 10)
+            max_exec_trial = kwargs.get('max_exec_trials', 1)
             self.built_model = ml_driver.perform_ml_regression(x_train_data, x_test_data, self.y_train, self.y_test,
                                                                output_dir=self.model_output_dir, ml_model=model_type,
-                                                               random_state=self.random_state)
+                                                               random_state=self.random_state, fold_count=max_trials,
+                                                               repeats=max_exec_trial)
 
     def get_error_stats(self, use_pca_data=False, model_type=None):
         """
@@ -213,7 +216,7 @@ class HydroNet:
         print('Train, Test Stats:', train_stats, test_stats)
 
     def get_prediction_results(self, gw_df, actual_gw, gw_ks, gw_az, grace_ks, grace_az, exclude_vars_ks,
-                               exclude_vars_az, test_years, pred_years, forecast_years=(2019,)):
+                               exclude_vars_az, test_years, pred_years, forecast_years=(2019,), use_ama_ina=False):
         """
         Generate prediction results for Overall data, Kansas data, and Arizona data
         :param gw_df: Input dataframe
@@ -227,9 +230,11 @@ class HydroNet:
         :param test_years: Test years
         :param pred_years: Prediction years
         :param forecast_years: Forecast years
+        :param use_ama_ina: Set True to show additional statistics over AMA/INA region in Arizona
         :return: None
         """
 
+        print('Kansas...')
         actual_gw_dir, pred_gw_dir = gw_ks.get_predictions(fitted_model=self.built_model, pred_years=pred_years,
                                                            drop_attrs=self.drop_attrs, exclude_vars=exclude_vars_ks,
                                                            pred_attr=self.pred_attr, only_pred=False,
@@ -237,15 +242,25 @@ class HydroNet:
         ma.run_analysis(actual_gw_dir, pred_gw_dir, grace_ks, use_gmds=False, input_gmd_file=None,
                         out_dir=self.output_dir, forecast_years=forecast_years, ty_start=test_years[0],
                         ty_end=test_years[-1])
+        ma.get_prediction_stats(actual_gw_dir, pred_gw_dir, test_years, forecast_years)
+        print('Arizona...')
         actual_gw_dir, pred_gw_dir = gw_az.get_predictions(fitted_model=self.built_model, pred_years=pred_years,
                                                            drop_attrs=self.drop_attrs, pred_attr=self.pred_attr,
                                                            exclude_vars=exclude_vars_az, exclude_years=(),
-                                                           only_pred=False, use_full_extent=True,
+                                                           only_pred=False, use_full_extent=False,
                                                            x_scaler=self.x_scaler, y_scaler=self.y_scaler)
         ma.run_analysis(actual_gw_dir, pred_gw_dir, grace_az, use_gmds=False, input_gmd_file=None,
                         out_dir=self.output_dir, forecast_years=forecast_years,
                         ty_start=test_years[0], ty_end=test_years[-1])
-
+        ma.get_prediction_stats(actual_gw_dir, pred_gw_dir, test_years, forecast_years)
+        if use_ama_ina:
+            print('AMA/INA stats...')
+            actual_gw_dir, pred_gw_dir = gw_az.crop_final_gw_rasters(actual_gw_dir, pred_gw_dir, already_cropped=False)
+            ma.get_prediction_stats(actual_gw_dir, pred_gw_dir, test_years, forecast_years)
+            ma.run_analysis(actual_gw_dir, pred_gw_dir, grace_az, use_gmds=False, input_gmd_file=None,
+                            out_dir=self.output_dir, forecast_years=forecast_years,
+                            ty_start=test_years[0], ty_end=test_years[-1])
+        print('Overall...')
         gw_year = gw_df['YEAR'].to_numpy().ravel()
         drop_attrs = [drop_attr for drop_attr in self.drop_attrs]
         gw_df = gw_df.drop(columns=drop_attrs)
@@ -284,7 +299,7 @@ def run_ml_gw():
     hydronet.scale_and_split_df(scaling=True, test_year=test_years, drop_attrs=drop_attrs, split_yearly=True,
                                 load_data=True, pred_attr=pred_attr)
     hydronet.perform_pca(gamma=1/6, degree=2, n_components=5, already_transformed=True)
-    hydronet.perform_regression(use_pca_data=False, model_type='kreg', use_keras_tuner=False, validation_split=0.1,
+    hydronet.perform_regression(use_pca_data=False, model_type='RF', use_keras_tuner=False, validation_split=0.1,
                                 max_trials=10, max_exec_trials=1, batch_size=512, epochs=100, load_model=True,
                                 model_number=2, timesteps=1, bidirectional=None, random_state=123,
                                 load_weights=None)
@@ -299,7 +314,7 @@ def run_ml_gw():
     gw_df = gw_df.drop(columns=[pred_attr])
     gw_df = gw_df.dropna(axis=0)
     hydronet.get_prediction_results(gw_df, actual_gw, gw_ks, gw_az, grace_ks, grace_az, exclude_vars_ks,
-                                    exclude_vars_az, test_years, pred_years, forecast_years)
+                                    exclude_vars_az, test_years, pred_years, forecast_years, use_ama_ina=True)
 
 
 run_ml_gw()

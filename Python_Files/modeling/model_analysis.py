@@ -184,9 +184,7 @@ def create_time_series_forecast_plot(input_df_list, forecast_years=(2019, ), plo
     ax2, df2 = None, None
     if plot_grace:
         df1, df2 = input_df_list
-        fig, (ax1, ax2) = plt.subplots(2, 1)
-    else:
-        fig, ax1 = plt.subplots(1, 1)
+    fig, (ax1, ax2) = plt.subplots(2, 1)
     fig.suptitle(plot_title)
     df1.set_index('YEAR').plot(ax=ax1)
     ax1.axvspan(ty_start - 0.5, ty_end + 0.5, color='#a6bddb', alpha=0.6)
@@ -440,6 +438,41 @@ def get_error_stats(actual_values, pred_values, round_places=2, normalize_metric
     rmse = np.round(rmse, round_places)
     mae = np.round(mae, round_places)
     return r2_score, mae, rmse, nmae, nrmse
+
+
+def get_prediction_stats(actual_gw_dir, pred_gw_dir, test_years, forecast_years):
+    """
+    Calculate train and test error statistics for GW rasters
+    :param actual_gw_dir: Actual GW raster directory
+    :param pred_gw_dir: Predicted GW raster directory
+    :param test_years: List of test years
+    :param forecast_years: List of forecast years
+    :return: None
+    """
+
+    actual_rasters, pred_rasters = glob(actual_gw_dir + 'GW*.tif'), glob(pred_gw_dir + '*.tif')
+    actual_rasters, pred_rasters = sorted(actual_rasters), sorted(pred_rasters)
+    train_pred_error_df, test_pred_error_df = pd.DataFrame(), pd.DataFrame()
+    for actual_raster, pred_raster in zip(actual_rasters, pred_rasters):
+        actual_arr = rops.read_raster_as_arr(actual_raster, get_file=False).ravel()
+        pred_arr = rops.read_raster_as_arr(pred_raster, get_file=False).ravel()
+        year = actual_raster[actual_raster.rfind('_') + 1: actual_raster.rfind('.')]
+        error_df = pd.DataFrame(data={'Actual': actual_arr, 'Pred': pred_arr})
+        error_df = error_df.dropna()
+        if int(year) in test_years:
+            test_pred_error_df = test_pred_error_df.append(error_df)
+        elif int(year) not in forecast_years:
+            train_pred_error_df = train_pred_error_df.append(error_df)
+        r2_score, mae, rmse, nmae, nrmse = get_error_stats(error_df.Actual, error_df.Pred)
+        print('YEAR', int(year), ': MAE =', mae, 'RMSE =', rmse, 'R^2 =', r2_score, 'Normalized RMSE =', nrmse,
+              'Normalized MAE =', nmae)
+    error_df_list = [train_pred_error_df, test_pred_error_df]
+    error_df_name = ['Train', 'Test']
+    for error_df, error_df_name in zip(error_df_list, error_df_name):
+        print('\n', error_df_name, 'error stats...')
+        r2_score, mae, rmse, nmae, nrmse = get_error_stats(error_df.Actual, error_df.Pred)
+        print('MAE =', mae, 'RMSE =', rmse, 'R^2 =', r2_score, 'Normalized RMSE =', nrmse,
+              'Normalized MAE =', nmae)
 
 
 def subsidence_analysis(input_dir):

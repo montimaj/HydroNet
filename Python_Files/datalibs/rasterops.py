@@ -1126,22 +1126,4 @@ def crop_final_gw_rasters(actual_gw_dir, pred_gw_dir, raster_mask, output_dir, g
                      pattern='GW*.tif', multi_poly=True)
         crop_rasters(pred_gw_dir, outdir=pred_out_gw_dir, input_mask_file=raster_mask, gdal_path=gdal_path,
                      multi_poly=True)
-    actual_rasters, pred_rasters = glob(actual_out_gw_dir + '*.tif'), glob(pred_out_gw_dir + '*.tif')
-    actual_rasters, pred_rasters = sorted(actual_rasters), sorted(pred_rasters)
-    print('\nCropped AMA/INA stats...')
-    pred_error_df = pd.DataFrame()
-    for actual_raster, pred_raster in zip(actual_rasters, pred_rasters):
-        actual_arr = read_raster_as_arr(actual_raster, get_file=False).ravel()
-        pred_arr = read_raster_as_arr(pred_raster, get_file=False).ravel()
-        error_df = pd.DataFrame(data={'Actual': actual_arr, 'Pred': pred_arr})
-        error_df = error_df.dropna()
-        pred_error_df = pred_error_df.append(error_df)
-        r2_score, mae, rmse, nmae, nrmse = get_error_stats(error_df.Actual, error_df.Pred)
-        year = actual_raster[actual_raster.rfind('_') + 1: actual_raster.rfind('.')]
-        print('YEAR', int(year), ': MAE =', mae, 'RMSE =', rmse, 'R^2 =', r2_score, 'Normalized RMSE =', nrmse,
-              'Normalized MAE =', nmae)
-    r2_score, mae, rmse, nmae, nrmse = get_error_stats(pred_error_df.Actual, pred_error_df.Pred)
-    print('\nOverall error stats...')
-    print('MAE =', mae, 'RMSE =', rmse, 'R^2 =', r2_score, 'Normalized RMSE =', nrmse,
-          'Normalized MAE =', nmae)
     return actual_out_gw_dir, pred_out_gw_dir
